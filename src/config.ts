@@ -11,7 +11,7 @@ export const CERT_DIR = join(CFG_DIR, "certs");
 export const REVIEW_DIR = join(DATA_DIR, "reviews");
 export const CLAUDE_DIR = join(HOME, ".claude");
 export const TMUX_CONF = join(CFG_DIR, "tmux.conf");
-export const TMUX_SOCKET = "agents-away";
+export const TMUX_SOCKET = process.env.AWAY_TMUX_SOCKET || "agents-away"; // override to run a separate (e.g. test) instance
 
 export const PORTS = {
   https: Number(process.env.AWAY_PORT ?? 7443),
