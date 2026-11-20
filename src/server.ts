@@ -12,6 +12,8 @@ import {
   listClaudeProcs, matchPane, ttyLastInput, transcriptPath, readTail, readRange, fileSize, parseLines,
   sessionTitle, lastAssistantText, recentSessions, knownProjectDirs,
 } from "./claude";
+import { detectAskForm, answerAsk, sameQuestion, type AskAnswer } from "./tmux";
+import { askQuestions, pendingAsk, type AskQuestion } from "./claude";
 import { addSubscription, removeSubscription, pushAll, subscriptionCount, type PushPayload } from "./push";
 import * as R from "./reviews";
 import { getPref, setPref, gitChanges, localImage, search } from "./extras";
@@ -63,6 +65,7 @@ type Session = {
   permId?: string;
   context?: Context | null; // Claude Code: % of the context window in use
   agents?: { total: number; running: number } | null; // Claude Code: subagents spawned by this session
+  ask?: Ask | null; // Claude Code: an AskUserQuestion form on screen
 };
 
 const sessions = new Map<string, Session>();
@@ -111,15 +114,16 @@ async function refresh() {
     const pane = matchPane(p, panes);
     const tpath = transcriptPath(p.sessionId, p.cwd);
     const h = hs(p.sessionId);
-    let prompt: Prompt | null = null;
+    let prompt: Prompt | null = null, ask: Ask | null = null;
     if (pane) {
       const screen = await capture(pane.socket, pane.paneId);
       prompt = screen ? detectPrompt(screen) : null;
+      if (screen) ({ ask, prompt } = askState(p.sessionId, tpath, screen, prompt));
     }
     // A permission notification that is no longer on screen has been answered (at the PC, usually).
     if (h.attention && pane && !prompt && Date.now() - h.attention.at > 4000) h.attention = null;
     let status: Status;
-    if (prompt || h.attention) status = "waiting";
+    if (prompt || ask || h.attention) status = "waiting";
     else if (p.status === "busy" && !(h.doneAt > h.promptAt && h.doneAt > p.statusUpdatedAt)) status = "working";
     else status = "idle";
     sessions.set(p.sessionId, {
@@ -127,7 +131,7 @@ async function refresh() {
       tmux: pane ? { socket: pane.socket, pane: pane.paneId, session: pane.session, attached: pane.attached, cols: pane.width } : null,
       attention: h.attention, prompt, lastInputAt: ttyLastInput(p.tty),
       activityAt: tpath ? statSync(tpath).mtimeMs : 0, startedAt: p.startedAt, doneAt: h.doneAt,
-      context: contextUsage(tpath), agents: agentCountsFor(p.sessionId, tpath, true),
+      context: contextUsage(tpath), agents: agentCountsFor(p.sessionId, tpath, true), ask,
     });
   }
   // Agents Away-socket panes Claude hasn't registered yet (e.g. sitting at the folder-trust prompt).
@@ -226,6 +230,7 @@ async function onHook(ev: any) {
   if (name === "UserPromptSubmit") { h.promptAt = Date.now(); h.attention = null; }
   else if (name === "PostToolUse") { h.attention = null; }
   else if (name === "Stop") { h.doneAt = Date.now(); h.attention = null; }
+  askHook(id, ev);
   await refreshNow();
   const s = sessions.get(id);
 
@@ -241,7 +246,12 @@ async function onHook(ev: any) {
       await refreshNow();
     }
     const cur = sessions.get(id);
+    if (cur?.ask && !idle) h.attention = { message: askLine(cur.ask), at: Date.now() };
     if (!config.settings.notifyOnAttention || !shouldPush(cur)) return;
+    if (cur?.ask && !idle) {
+      await pushAll({ kind: "attention", sessionId: id, tag: "s-" + id, title: displayName(cur), body: askLine(cur.ask), url: `/#/s/${id}`, actions: [{ action: "open", title: "Answer" }] });
+      return;
+    }
     const actions = cur?.prompt && cur.tmux ? [{ action: "approve", title: "Allow" }, { action: "open", title: "Open" }] : [];
     await pushAll({
       kind: idle ? "info" : "attention", sessionId: id, tag: "s-" + id,
@@ -260,6 +270,44 @@ async function onHook(ev: any) {
       url: `/#/s/${id}`, actions: s?.tmux ? [{ action: "open", title: "Reply" }] : [],
     });
   }
+}
+
+// ───────── Claude Code AskUserQuestion ─────────
+// The questions come from the PreToolUse hook (the transcript only gets the tool_use once it's answered in
+// current Claude Code), else from the transcript, else from the screen itself (then only the visible question).
+type Ask = { id: string | null; questions: AskQuestion[]; current: number; partial: boolean; tabs: { header: string; done: boolean }[] };
+const askHooks = new Map<string, { id: string; questions: AskQuestion[] }>();
+const askBusy = new Set<string>();
+
+function askHook(id: string, ev: any) {
+  const name = ev.hook_event_name, isAsk = ev.tool_name === "AskUserQuestion";
+  if (name === "PreToolUse" && isAsk) {
+    const questions = askQuestions(ev.tool_input);
+    if (questions) askHooks.set(id, { id: String(ev.tool_use_id ?? ""), questions });
+  } else if ((name === "PostToolUse" && isAsk) || name === "UserPromptSubmit" || name === "Stop") askHooks.delete(id);
+}
+
+function askLine(a: Ask) {
+  const q = a.questions[Math.max(0, a.current)] ?? a.questions[0];
+  return `Claude is asking: ${q.question}${!a.partial && a.questions.length > 1 ? ` (+${a.questions.length - 1} more)` : ""}`;
+}
+
+function askState(id: string, tpath: string | null, screen: string, prompt: Prompt | null): { ask: Ask | null; prompt: Prompt | null } {
+  const form = detectAskForm(screen);
+  if (!form) return { ask: null, prompt };
+  // The review step is an ordinary menu (Submit answers / Cancel): keep the prompt card, with a better title.
+  if (form.review) return { ask: null, prompt: prompt && { ...prompt, question: "Review your answers", context: form.summary } };
+  const known = askHooks.get(id) ?? pendingAsk(tpath);
+  const current = known ? known.questions.findIndex((q) => sameQuestion(q.question, form.question)) : -1;
+  if (known && current >= 0 && known.questions.length === form.tabs.length) {
+    return { ask: { id: known.id, questions: known.questions, current, partial: false, tabs: form.tabs }, prompt: null };
+  }
+  const tab = form.tabs.length === 1 ? form.tabs[0] : null;
+  const q: AskQuestion = {
+    question: form.question, header: tab?.header ?? "", multiSelect: form.multi,
+    options: form.options.slice(0, -1).map((o) => ({ label: o.label, description: o.description })),
+  };
+  return { ask: { id: null, questions: [q], current: 0, partial: true, tabs: form.tabs }, prompt: null };
 }
 
 // ───────── OpenCode live events → refresh, chat updates, notifications ─────────
@@ -584,6 +632,32 @@ async function api(req: Request, url: URL, deviceKey: string): Promise<Response>
       catch (e: any) { return err(e.message, 409); }
       hs(s.id).attention = null;
     }
+    setTimeout(refreshNow, 250);
+    return json({ ok: true });
+  }
+  if ((mm = m(/^\/api\/session\/([\w-]+)\/ask$/)) && req.method === "POST" && sessions.get(mm[1])?.kind !== "opencode") {
+    // Answer a Claude Code AskUserQuestion form: {answers: [{pick: [1-based option numbers], other?: "free text"}]}
+    const s = requireSession(mm[1]);
+    const a = sessions.get(s.id)?.ask;
+    if (!a) return err("No question is showing in that session any more", 409);
+    const b = await body();
+    const answers: AskAnswer[] = (Array.isArray(b.answers) ? b.answers : []).map((x: any) => ({
+      pick: (Array.isArray(x?.pick) ? x.pick : []).map(Number).filter((n: number) => Number.isInteger(n) && n > 0),
+      other: typeof x?.other === "string" ? x.other.slice(0, 2000) : undefined,
+    }));
+    const qs = a.partial ? [a.questions[0]] : a.questions;
+    if (answers.length !== qs.length) return err("Answer every question", 400);
+    for (const [i, q] of qs.entries()) {
+      const x = answers[i];
+      if (!x.other?.trim() && !x.pick.length) return err(`Pick an answer for "${q.header || q.question}"`, 400);
+      if (x.pick.some((n) => n > q.options.length) || (!q.multiSelect && x.pick.length > 1)) return err("Option not available", 400);
+    }
+    if (askBusy.has(s.id)) return err("Already answering", 409);
+    askBusy.add(s.id);
+    try { await answerAsk(s.tmux.socket, s.tmux.pane, qs.map((q) => q.question), answers, !a.partial); }
+    catch (e: any) { return err(e.message, 409); }
+    finally { askBusy.delete(s.id); }
+    hs(s.id).attention = null;
     setTimeout(refreshNow, 250);
     return json({ ok: true });
   }

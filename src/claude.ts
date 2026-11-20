@@ -281,3 +281,41 @@ export function knownProjectDirs(): string[] {
   for (const r of recentSessions(60)) if (r.cwd && !r.cwd.startsWith("/tmp/") && existsSync(r.cwd)) seen.add(r.cwd);
   return [...seen];
 }
+
+// ───────── AskUserQuestion ─────────
+export type AskQuestion = { question: string; header: string; multiSelect: boolean; options: { label: string; description: string }[] };
+
+/** The tool input's questions, cleaned up (it comes from the model, so don't trust its shape). */
+export function askQuestions(input: any): AskQuestion[] | null {
+  const qs = Array.isArray(input?.questions) ? input.questions : null;
+  if (!qs?.length) return null;
+  return qs.slice(0, 8).map((q: any) => ({
+    question: clip(String(q?.question ?? ""), 600), header: clip(String(q?.header ?? ""), 40), multiSelect: !!q?.multiSelect,
+    options: (Array.isArray(q?.options) ? q.options : []).slice(0, 12)
+      .map((o: any) => ({ label: clip(String(o?.label ?? ""), 200), description: clip(String(o?.description ?? ""), 400) })),
+  }));
+}
+
+/** The newest AskUserQuestion call in the transcript that has no tool_result yet. (Some Claude Code
+ *  versions only write the tool_use line once it's answered; the PreToolUse hook covers those.) */
+const askCache = new Map<string, { size: number; ask: { id: string; questions: AskQuestion[] } | null }>();
+export function pendingAsk(path: string | null) {
+  if (!path) return null;
+  const size = fileSize(path);
+  const c = askCache.get(path);
+  if (c && c.size === size) return c.ask;
+  const text = readRange(path, Math.max(0, size - 512 * 1024), size);
+  let ask: { id: string; questions: AskQuestion[] } | null = null;
+  const at = text.lastIndexOf('"name":"AskUserQuestion"');
+  if (at >= 0) {
+    const s = text.lastIndexOf("\n", at) + 1, e = text.indexOf("\n", at);
+    try {
+      const o = JSON.parse(text.slice(s, e < 0 ? undefined : e));
+      const b = [...(o.message?.content ?? [])].reverse().find((b: any) => b.type === "tool_use" && b.name === "AskUserQuestion");
+      const questions = b && askQuestions(b.input);
+      if (questions && !text.includes(`"tool_use_id":"${b.id}"`, s)) ask = { id: b.id, questions };
+    } catch {}
+  }
+  askCache.set(path, { size, ask });
+  return ask;
+}

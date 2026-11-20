@@ -273,6 +273,19 @@ button.card { width: 100%; text-align: left; }
 .prompt-card .opts .btn { justify-content: flex-start; text-align: left; font-weight: 550; }
 .prompt-card .opts .btn .n { font-family: var(--mono); color: var(--ink-3); font-size: 12.5px; width: 14px; flex: none; }
 .prompt-card .opts .btn.primary .n { color: inherit; opacity: .7; }
+/* AskUserQuestion card */
+.ask-qs { display: flex; flex-direction: column; gap: 14px; margin-top: 8px; max-height: 52vh; overflow: auto; overscroll-behavior: contain; }
+.ask-h { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-3); margin-bottom: 4px; }
+.ask-t { font-weight: 600; font-size: 14.5px; overflow-wrap: anywhere; }
+.ask-o { display: flex; gap: 10px; align-items: flex-start; margin-top: 6px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--card-2); cursor: pointer; }
+.ask-o:has(> input:checked) { border-color: color-mix(in oklab, var(--accent) 60%, var(--line)); background: var(--accent-soft); }
+.ask-o > input { flex: none; width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--accent); }
+.ask-o > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.ask-o b { font-weight: 600; font-size: 14px; overflow-wrap: anywhere; }
+.ask-o small { font-size: 12.5px; line-height: 1.35; color: var(--ink-2); overflow-wrap: anywhere; }
+.ask-other { font: inherit; font-size: 16px; width: 100%; margin-top: 4px; padding: 6px 8px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--card); color: var(--ink); }
+.ask-note { margin-top: 8px; font-size: 12.5px; color: var(--ink-3); }
+.ask-go { margin-top: 10px; }
 
 .composer {
   display: flex; align-items: flex-end; gap: 6px; background: var(--card); border: 1px solid var(--line-2);

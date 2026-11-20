@@ -230,7 +230,9 @@ async function attach(args: string[]) {
 }
 
 // ───────── Claude Code hooks (install into ~/.claude/settings.json) ─────────
-const HOOK_EVENTS = ["Notification", "Stop", "UserPromptSubmit", "PostToolUse"];
+const HOOK_EVENTS = ["Notification", "Stop", "UserPromptSubmit", "PostToolUse", "PreToolUse"];
+// PreToolUse only for AskUserQuestion: it carries the questions before the transcript has them.
+const HOOK_MATCHER: Record<string, string> = { PostToolUse: "*", PreToolUse: "AskUserQuestion" };
 async function hooks(sub: string | undefined) {
   const { writeFileSync, copyFileSync, mkdirSync } = await import("node:fs");
   const dir = join(homedir(), ".claude");
@@ -256,7 +258,7 @@ async function hooks(sub: string | undefined) {
     // drop our entries (also cleans duplicates), keep everyone else's
     for (const m of list) if (Array.isArray(m.hooks)) m.hooks = m.hooks.filter((h: any) => !isOurs(h));
     settings.hooks[ev] = list.filter((m) => !Array.isArray(m.hooks) || m.hooks.length);
-    if (sub === "install") settings.hooks[ev].push({ ...(ev === "PostToolUse" ? { matcher: "*" } : {}), hooks: [{ type: "command", command, timeout: 5 }] });
+    if (sub === "install") settings.hooks[ev].push({ ...(HOOK_MATCHER[ev] ? { matcher: HOOK_MATCHER[ev] } : {}), hooks: [{ type: "command", command, timeout: 5 }] });
     if (!settings.hooks[ev].length) delete settings.hooks[ev];
   }
   if (!Object.keys(settings.hooks).length) delete settings.hooks;

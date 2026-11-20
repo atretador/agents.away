@@ -295,7 +295,7 @@ function orderedSessions() {
 const STATUS_LABEL = { working: "Working", waiting: "Needs you", idle: "Your turn" };
 function sessionCard(s) {
   const when = s.status === "working" ? "" : ago(s.activityAt);
-  const ask = s.status === "waiting" ? (s.prompt?.question || s.attention?.message) : null;
+  const ask = s.status === "waiting" ? (s.ask ? askLine(s.ask) : s.prompt?.question || s.attention?.message) : null;
   const swipe = s.canReply;
   const oc = s.kind === "opencode";
   return `${swipe ? `<div class="swipe-wrap" data-sid="${esc(s.id)}"><div class="swipe-act"><span>${icon(oc ? "archive" : "power")}<b>${oc ? "Archive" : "End"}</b></span></div>` : ""}<a class="card s-card ${s.status}" href="#/s/${s.id}">
@@ -628,16 +628,76 @@ function renderTyping(s) {
   } else el?.remove();
 }
 
+// ───────── AskUserQuestion card (Claude Code) ─────────
+// s.ask = {questions: [{question, header, multiSelect, options: [{label, description}]}], current, partial, tabs}.
+// partial: only the question on screen is known (no PreToolUse hook data), so it's answered on its own.
+const askSel = new Map(); // session + questions -> {pick: [[n…]], other: [text], on: [bool]}
+const askLine = (a) => `Claude is asking: ${(a.questions[a.current] ?? a.questions[0]).question}`;
+function askState(s) {
+  const k = s.id + "|" + s.ask.questions.map((q) => q.question).join("|");
+  if (!askSel.has(k)) askSel.set(k, { k, pick: s.ask.questions.map(() => []), other: s.ask.questions.map(() => ""), on: s.ask.questions.map(() => false) });
+  return askSel.get(k);
+}
+const askDone = (q, st, i) => (st.on[i] ? !!st.other[i].trim() : st.pick[i].length > 0);
+function askCard(s) {
+  const a = s.ask, st = askState(s), many = !a.partial && a.questions.length > 1;
+  const qs = a.questions.map((q, i) => {
+    const type = q.multiSelect ? "checkbox" : "radio";
+    const opt = (n, label, desc) => `<label class="ask-o"><input type="${type}" name="aq${i}" value="${n}" ${st.pick[i].includes(n) ? "checked" : ""}><span><b>${esc(label)}</b>${desc ? `<small>${esc(desc)}</small>` : ""}</span></label>`;
+    return `<div class="ask-q" data-q="${i}">
+      ${q.header || q.multiSelect ? `<div class="ask-h">${q.header ? `<span class="chip wait">${esc(q.header)}</span>` : ""}${q.multiSelect ? `<span>Pick any</span>` : ""}</div>` : ""}
+      <div class="ask-t">${esc(q.question)}</div>
+      ${q.options.map((o, j) => opt(j + 1, o.label, o.description)).join("")}
+      <label class="ask-o"><input type="${type}" name="aq${i}" value="other" ${st.on[i] ? "checked" : ""}><span><b>Other…</b><input type="text" class="ask-other" data-q="${i}" placeholder="Type your own answer" value="${esc(st.other[i])}" enterkeyhint="done"></span></label>
+    </div>`;
+  }).join("");
+  const rest = a.partial && a.tabs.length > 1 ? `<div class="ask-note">One of ${a.tabs.length} questions — the next one shows here after you answer.</div>` : "";
+  return `<div class="prompt-card ask-card">
+    <div class="q">${icon("chat")}<span>${many ? `Claude has ${a.questions.length} questions` : "Claude is asking"}</span></div>
+    <div class="ask-qs">${qs}</div>${rest}
+    ${s.canReply ? `<button class="btn primary block ask-go" id="askgo">${icon("send")} ${many ? "Send answers" : "Send answer"}</button>` : ""}
+  </div>`;
+}
+function wireAsk(dock, s) {
+  const st = askState(s), go = dock.querySelector("#askgo");
+  const sync = () => { if (go && !go.dataset.busy) go.disabled = !s.ask.questions.every((q, i) => askDone(q, st, i)); };
+  dock.querySelectorAll(".ask-q").forEach((box) => {
+    const i = +box.dataset.q;
+    const read = () => {
+      const ins = [...box.querySelectorAll(`input[name="aq${i}"]`)];
+      st.pick[i] = ins.filter((x) => x.checked && x.value !== "other").map((x) => +x.value);
+      st.on[i] = ins.some((x) => x.checked && x.value === "other");
+      sync();
+    };
+    box.querySelectorAll(`input[name="aq${i}"]`).forEach((x) => (x.onchange = () => { vibrate(6); read(); }));
+    const t = box.querySelector(".ask-other"), ot = box.querySelector('input[value="other"]');
+    t.oninput = () => {
+      st.other[i] = t.value;
+      if (t.value.trim() && !ot.checked) { ot.checked = true; read(); } else sync();
+    };
+    t.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); t.blur(); } };
+  });
+  sync();
+  if (!go) return;
+  go.onclick = async () => {
+    const answers = s.ask.questions.map((q, i) => ({ pick: q.multiSelect || !st.on[i] ? st.pick[i] : [], other: st.on[i] ? st.other[i].trim() : undefined }));
+    go.disabled = true; go.dataset.busy = "1"; go.innerHTML = `${icon("send")} Sending…`; vibrate();
+    try { await api(`/api/session/${s.id}/ask`, { answers }); askSel.delete(st.k); toast("Sent"); }
+    catch (e) { toast(e.message, true); delete go.dataset.busy; go.innerHTML = `${icon("send")} Try again`; sync(); }
+  };
+}
+
 let lastDockKey = "";
 const primaryOpt = (p) => p.options.find((o) => /^yes\b/i.test(o.label))?.n ?? 1;
 function renderDock(s) {
   const dock = $("#dock");
-  const key = JSON.stringify([s.id, s.canReply, s.prompt, s.attention?.message, S.keysOpen]);
+  const key = JSON.stringify([s.id, s.canReply, s.prompt, s.ask, s.attention?.message, S.keysOpen]);
   if (key === lastDockKey && dock.childElementCount) return;
   lastDockKey = key;
   const draft = $("#msg")?.value ?? S.drafts[s.id] ?? "";
   let html = "";
-  if (s.prompt) {
+  if (s.ask) html += askCard(s);
+  else if (s.prompt) {
     const p = s.prompt;
     html += `<div class="prompt-card">
       <div class="q">${icon("alert")}<span>${esc(p.question)}</span></div>
@@ -668,6 +728,7 @@ function renderDock(s) {
     try { await api(`/api/session/${s.id}/choose`, { n: +b.dataset.opt }); toast("Sent"); }
     catch (e) { toast(e.message, true); b.disabled = false; }
   }));
+  if (s.ask) wireAsk(dock, s);
   $("#palbtn") && ($("#palbtn").onclick = () => openPalette(s));
   dock.querySelectorAll("[data-key]").forEach((b) => (b.onclick = async () => {
     vibrate(6);

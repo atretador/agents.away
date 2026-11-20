@@ -104,8 +104,11 @@ export type Prompt = {
 
 const BOX = /[│╭╮╰╯─┃┏┓┗┛━╌┆]/g;
 
-/** Detect a numbered selection menu (permission prompt, AskUserQuestion…) at the bottom of the screen. */
+/** Detect a numbered selection menu (permission prompt, trust prompt…) at the bottom of the screen.
+ *  AskUserQuestion forms are not menus: they're left to detectAskForm (except their review step). */
 export function detectPrompt(screen: string): Prompt | null {
+  const form = detectAskForm(screen);
+  if (form && !form.review) return null;
   const lines = screen.replace(/\s+$/, "").split("\n").map((l) => l.replace(BOX, " ").replace(/\s+$/, ""));
   const tail = lines.slice(-30);
   const optRe = /^\s*([❯›>])?\s*(\d{1,2})[.)]\s+(.+?)\s*$/;
@@ -189,6 +192,168 @@ export async function chooseOption(socket: string, pane: string, pick: (p: Promp
   keys.push("Enter");
   await sendKeys(socket, pane, keys);
   return p;
+}
+
+// ───────── AskUserQuestion forms ─────────
+// Claude Code draws the form as: a tab bar (`←  ☐ Colour  ☒ Sizes  ✔ Submit  →`, or just ` ☐ Fruit` for one
+// question), the question, numbered options (multi-select ones as `[ ]`/`[✔]`) with indented descriptions, a
+// last "Type something" row (free text: typing/pasting there fills and selects it), for multi-select a
+// `Next`/`Submit` row, a separator, `N. Chat about this` and the `Enter to select · … · Esc to cancel` hint.
+// Multi-question forms end with a "Review your answers" step (1. Submit answers / 2. Cancel).
+
+export type AskForm = {
+  tabs: { header: string; done: boolean }[];
+  review: boolean;
+  question: string;
+  summary: string[]; // review step: the answers as shown
+  multi: boolean;
+  options: { n: number; label: string; description: string; checked: boolean }[]; // last = "Type something"
+  cursor: number; // n of the ❯ option, 0 = the Next/Submit row, -2 = "Chat about this", -1 = unknown
+  typed: string; // text in the "Type something" row
+};
+
+const SEP = /^\s*─{20,}\s*$/;
+const OTHER_EMPTY = /^Type something\.?$/;
+const normQ = (s: string) => s.replace(/\s+/g, " ").trim();
+/** Same question text (screen lines wrap, so compare normalised, and tolerate truncation). */
+export function sameQuestion(a: string, b: string) {
+  a = normQ(a); b = normQ(b);
+  return a === b || (a.length >= 24 && b.length >= 24 && (a.startsWith(b.slice(0, 48)) || b.startsWith(a.slice(0, 48))));
+}
+
+function parseTabBar(line: string): { header: string; done: boolean }[] | null {
+  const t = line.trim();
+  if (!/^(←\s+)?[☐☒✔]\s/.test(t) || !/[☐☒]/.test(t)) return null;
+  const inner = t.replace(/^←\s+/, "").replace(/\s+→$/, "");
+  const TAB = /([☐☒✔])\s(.+?)(?=\s+[☐☒✔]\s|$)/g;
+  if (inner.replace(TAB, "").trim()) return null;
+  const parts = [...inner.matchAll(TAB)];
+  const tabs = parts.map((p) => ({ mark: p[1], header: p[2].trim() }));
+  if (tabs.length > 1 && tabs[tabs.length - 1].mark === "✔" && tabs[tabs.length - 1].header === "Submit") tabs.pop();
+  if (tabs.some((x) => x.mark === "✔")) return null;
+  return tabs.map((x) => ({ header: x.header, done: x.mark === "☒" }));
+}
+
+export function detectAskForm(screen: string): AskForm | null {
+  const lines = screen.replace(/\s+$/, "").split("\n").map((l) => l.replace(/\s+$/, ""));
+  let hint = -1;
+  for (let i = lines.length - 1; i >= Math.max(0, lines.length - 6); i--) if (/Esc to cancel|Enter to select/.test(lines[i])) { hint = i; break; }
+  const noHint = hint < 0; // the review step has no hint line
+  if (noHint) hint = lines.length;
+  let bar = -1, tabs: AskForm["tabs"] | null = null;
+  for (let i = hint - 1; i >= Math.max(0, hint - 80) && !tabs; i--) if ((tabs = parseTabBar(lines[i]))) bar = i;
+  if (!tabs) return null;
+  const body = lines.slice(bar + 1, hint);
+  const optRe = /^\s*(❯)?\s*(\d{1,2})\.\s+(?:\[([ ✔])\]\s+)?(.*)$/;
+  const first = body.findIndex((l) => optRe.test(l));
+  if (first < 1) return null;
+  const head = body.slice(0, first).map((l) => l.trim()).filter(Boolean);
+  const isReview = normQ(head[0] ?? "") === "Review your answers";
+  if (noHint && !isReview) return null;
+  if (isReview) {
+    const options = body.slice(first).map((l) => l.match(optRe)).filter(Boolean)
+      .map((m) => ({ n: +m![2], label: m![4].trim(), description: "", checked: false, sel: !!m![1] }));
+    const cur = options.find((o) => o.sel);
+    return { tabs, review: true, question: "Review your answers", summary: head.slice(1), multi: false,
+      options: options.map(({ sel, ...o }) => o), cursor: cur ? cur.n : -1, typed: "" };
+  }
+  const f: AskForm = { tabs, review: false, question: head.join(" "), summary: [], multi: false, options: [], cursor: -1, typed: "" };
+  let afterSep = false, chat = false;
+  for (const l of body.slice(first)) {
+    if (SEP.test(l)) { afterSep = true; continue; }
+    const m = l.match(optRe);
+    if (afterSep) { if (m) { chat = true; if (m[1]) f.cursor = -2; } continue; }
+    if (m) {
+      f.options.push({ n: +m[2], label: m[4].trim(), description: "", checked: m[3] === "✔" });
+      if (m[3] !== undefined) f.multi = true;
+      if (m[1]) f.cursor = +m[2];
+      continue;
+    }
+    const sub = l.match(/^\s*(❯)?\s+(Next|Submit)$/);
+    if (sub && f.multi) { if (sub[1]) f.cursor = 0; continue; }
+    const last = f.options[f.options.length - 1];
+    if (last && l.trim()) last.description = (last.description + " " + l.trim()).trim();
+  }
+  if (f.options.length < 2 || f.options.some((o, i) => o.n !== i + 1)) return null;
+  // Not a form unless it has its trailing rows (guards against a ☐ todo line above an ordinary menu).
+  if (!afterSep || (!chat && !OTHER_EMPTY.test(f.options[f.options.length - 1].label))) return null;
+  const other = f.options[f.options.length - 1];
+  f.typed = OTHER_EMPTY.test(other.label) ? "" : other.label;
+  return f;
+}
+
+export type AskAnswer = { pick: number[]; other?: string }; // pick: 1-based option numbers (without "Type something")
+
+/** Fill in and submit an AskUserQuestion form with keys, re-reading the screen after every step.
+ *  `questions` are the question texts in tab order; with `submit` the review step is confirmed too. */
+export async function answerAsk(socket: string, pane: string, questions: string[], answers: AskAnswer[], submit: boolean) {
+  const read = async (wait = 160) => {
+    await Bun.sleep(wait);
+    const s = await capture(socket, pane);
+    return s ? detectAskForm(s) : null;
+  };
+  const press = async (keys: string[]) => { if (keys.length) await sendKeys(socket, pane, keys); return read(); };
+  const gone = () => new Error("The question form isn't showing any more");
+  const pos = (f: AskForm, c: number) => (c > 0 ? c : c === 0 ? f.options.length + 1 : c === -2 ? f.options.length + (f.multi ? 2 : 1) : -1);
+  const moveTo = async (f: AskForm, target: number) => {
+    const from = pos(f, f.cursor), to = pos(f, target);
+    if (from < 0) throw new Error("Can't tell where the cursor is in the form");
+    const g = await press(Array(Math.abs(to - from)).fill(to > from ? "Down" : "Up"));
+    if (!g) throw gone();
+    if (g.cursor !== target) throw new Error("The form didn't move as expected — nothing was submitted");
+    return g;
+  };
+  const setOther = async (f: AskForm, text: string) => {
+    text = text.replace(/\s*\n\s*/g, " ").trim();
+    if (f.typed === text) return f;
+    let g = f.typed ? await press(["C-u"]) : f;
+    if (!g) throw gone();
+    if (text) { await sendText(socket, pane, text, false); g = await read(250); }
+    if (!g || normQ(g.typed) !== normQ(text)) throw new Error("Couldn't type the answer into the form");
+    return g;
+  };
+  const at = (f: AskForm) => (f.review ? questions.length : questions.findIndex((q) => sameQuestion(q, f.question)));
+
+  let f = await read(0);
+  if (!f || f.review) throw gone();
+  for (let i = 0; i < questions.length; i++) {
+    for (let guard = 0; ; guard++) {
+      if (!f) throw gone();
+      const cur = at(f);
+      if (cur < 0) throw new Error("A different question is showing now");
+      if (cur === i) break;
+      if (guard > questions.length * 2 + 2) throw new Error(`Couldn't switch to question ${i + 1}`);
+      // Left/Right only switch tabs from a plain option row (in the text row they move the text cursor).
+      if (!f.review && f.cursor !== 1) { f = await moveTo(f, 1); continue; }
+      f = await press([cur < i ? "Right" : "Left"]);
+    }
+    const a = answers[i], other = f!.options.length;
+    if (!f!.multi) {
+      const target = a.other?.trim() ? other : a.pick[0];
+      if (!target || target < 1 || target > other) throw new Error(`Pick an answer for question ${i + 1}`);
+      f = await moveTo(f!, target);
+      if (target === other) f = await setOther(f, a.other!);
+    } else {
+      for (let n = 1; n < other; n++) {
+        const want = a.pick.includes(n);
+        if (f!.options[n - 1].checked === want) continue;
+        f = await moveTo(f!, n);
+        f = await press(["Space"]);
+        if (!f || f.options[n - 1].checked !== want) throw new Error(`Couldn't ${want ? "tick" : "untick"} "${f?.options[n - 1]?.label ?? n}"`);
+      }
+      if (normQ(a.other ?? "") !== normQ(f!.typed)) { f = await moveTo(f!, other); f = await setOther(f, a.other ?? ""); }
+      f = await moveTo(f!, 0); // Next / Submit
+    }
+    f = await press(["Enter"]);
+    if (f && !f.review && at(f) === i) throw new Error(`Question ${i + 1} didn't take the answer`);
+  }
+  if (f?.review && submit) {
+    if (f.tabs.some((t) => !t.done)) throw new Error("Not every question is answered yet");
+    const ok = f.options.find((o) => /^Submit/i.test(o.label));
+    if (!ok) throw new Error("No Submit button on the review step");
+    f = await moveTo(f, ok.n);
+    await sendKeys(socket, pane, ["Enter"]);
+  }
 }
 
 function fishQuote(s: string) {
