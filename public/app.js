@@ -124,7 +124,7 @@ const S = {
 // ───────── websocket ─────────
 let ws, wsRetry = 0, pingT, swError = null;
 function connect() {
-  ws = new WebSocket(`wss://${location.host}/ws`);
+  ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
   ws.onopen = () => {
     wsRetry = 0; S.connected = true; updateConn();
     send({ type: "visible", visible: document.visibilityState === "visible" });
@@ -187,13 +187,7 @@ function onMsg(m) {
     if (m.reset || m.resume) prefetchNeighbours(m.id);
   } else if (m.type === "queue" && S.chat?.id === m.id) {
     S.chat.queue.innerHTML = "";
-    for (const t of m.items) {
-      const q = document.createElement("div");
-      q.className = "msg-user queued";
-      q.innerHTML = `<span class="q-label">Queued — waiting for the current step to finish</span>`;
-      q.appendChild(document.createTextNode(t));
-      S.chat.queue.appendChild(q);
-    }
+    for (const t of m.items) { const q = queuedEl(t, S.chat); if (q) S.chat.queue.appendChild(q); }
   } else if (m.type === "older" && S.view?.kind === "session" && m.id === S.view.id) {
     prependItems(m.items, m.start);
   } else if (m.type === "term" && S.view?.kind === "session" && m.id === S.view.id) {
@@ -472,7 +466,9 @@ function renderSession(id) {
 function neighbours(id) {
   const list = orderedSessions();
   const i = list.findIndex((s) => s.id === id);
-  return { list, i, prev: i > 0 ? list[i - 1] : null, next: i >= 0 && i < list.length - 1 ? list[i + 1] : null };
+  // Wraps around: swiping past the last session goes to the first, and vice versa.
+  if (i < 0 || list.length < 2) return { list, i, prev: null, next: null };
+  return { list, i, prev: list[(i - 1 + list.length) % list.length], next: list[(i + 1) % list.length] };
 }
 function goSession(target, dir) {
   if (!target) { vibrate(4); return; }
@@ -524,6 +520,7 @@ function renderPager(id) {
 
 function setMode(mode, initial = false) {
   if (!initial) saveChatScroll();
+  setTimeout(updateNewest, 120);
   S.mode = mode;
   localStorage.setItem("away.mode", mode);
   app.querySelectorAll(".seg button").forEach((b) => b.classList.toggle("on", b.dataset.mode === mode));
@@ -697,6 +694,12 @@ function renderDock(s) {
     try {
       await api(`/api/session/${s.id}/text`, { text });
       ta.value = ""; delete S.drafts[s.id]; atts.length = 0; drawAtts(); grow();
+      // Busy session: show it as queued right away (the transcript can lag while Claude is streaming).
+      const live = S.sessions.find((x) => x.id === s.id);
+      if (live?.status === "working" && S.chat?.id === s.id) {
+        const q = queuedEl(text, S.chat, true);
+        if (q) { S.chat.queue.appendChild(q); setTimeout(() => q.classList.contains("local") && q.remove(), 120_000); }
+      }
       scrollChatToEnd(true);
     } catch (e) { toast(e.message, true); sb.disabled = false; }
   };
@@ -715,6 +718,30 @@ addEventListener("wheel", () => (pinUntil = 0), { passive: true });
 document.addEventListener("load", (e) => {
   if (e.target.tagName === "IMG" && Date.now() < pinUntil && e.target.closest("#chat")) window.scrollTo(0, document.documentElement.scrollHeight);
 }, true);
+// "Newest" button: floats above the composer when you've scrolled up in a chat.
+const newestBtn = document.createElement("button");
+newestBtn.className = "newest-btn";
+newestBtn.setAttribute("aria-label", "Go to newest message");
+newestBtn.hidden = true;
+document.body.appendChild(newestBtn);
+let newestRaf = 0;
+function updateNewest() {
+  cancelAnimationFrame(newestRaf);
+  newestRaf = requestAnimationFrame(() => {
+    const show = S.view?.kind === "session" && S.mode === "chat" && !!$("#chat") && !nearBottom() && lockedY === null;
+    if (show) {
+      newestBtn.innerHTML = `${icon("down")}<span>Newest</span>`;
+      const dock = document.querySelector(".dock");
+      newestBtn.style.bottom = `${(dock ? innerHeight - dock.getBoundingClientRect().top : 20) + 12}px`;
+    }
+    newestBtn.hidden = !show;
+  });
+}
+newestBtn.onclick = () => { window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" }); vibrate(8); };
+addEventListener("scroll", updateNewest, { passive: true });
+addEventListener("resize", updateNewest);
+addEventListener("hashchange", () => setTimeout(updateNewest, 50));
+
 function scrollChatToEnd(force) { if (force || nearBottom()) requestAnimationFrame(() => window.scrollTo(0, document.documentElement.scrollHeight)); }
 
 function itemEl(it, st = S.chat) {
@@ -803,6 +830,30 @@ function applyResult(it, st) {
   }
 }
 
+/** A queued-message bubble (bottom of the chat) with a "Send now" button. `local` = shown optimistically
+ *  right after sending, before the transcript confirms it. */
+function queuedEl(text, st, local = false) {
+  const existing = [...st.queue.children].find((q) => q.dataset.text === text);
+  if (existing) { if (!local) existing.classList.remove("local"); return null; }
+  const q = document.createElement("div");
+  q.className = "msg-user queued" + (local ? " local" : "");
+  q.dataset.text = text;
+  const oc = S.sessions.find((x) => x.id === st.id)?.kind === "opencode";
+  q.innerHTML = `<span class="q-label">Queued — ${oc ? "OpenCode" : "Claude"} reads this when the current step finishes</span>`;
+  q.appendChild(document.createTextNode(text));
+  const b = document.createElement("button");
+  b.className = "q-now";
+  b.innerHTML = `${icon("send")} Send now`;
+  b.title = oc ? "Interrupt the current step so OpenCode reads this now" : "Deliver it now (Claude Code's Ctrl+X Ctrl+S)";
+  b.onclick = async () => {
+    b.disabled = true;
+    try { await api(`/api/session/${st.id}/sendnow`, {}); vibrate(15); toast(oc ? "Interrupted — sending now" : "Sending now"); }
+    catch (e) { toast(e.message, true); b.disabled = false; }
+  };
+  q.appendChild(b);
+  return q;
+}
+
 /** Turn items into DOM. Queued messages live in st.queue (kept at the bottom) until Claude takes them. */
 function build(items, st) {
   const frag = document.createDocumentFragment();
@@ -810,12 +861,8 @@ function build(items, st) {
   for (const it of items) {
     if (it.k === "result") { results.push(it); continue; }
     if (it.k === "queued") {
-      const q = document.createElement("div");
-      q.className = "msg-user queued";
-      q.dataset.text = it.text;
-      q.innerHTML = `<span class="q-label">Queued — Claude will read this when it gets a moment</span>`;
-      q.appendChild(document.createTextNode(it.text));
-      st.queue.appendChild(q);
+      const q = queuedEl(it.text, st);
+      if (q) st.queue.appendChild(q);
       continue;
     }
     if (it.k === "unqueue") {
@@ -823,6 +870,8 @@ function build(items, st) {
       (all.find((q) => it.text && q.dataset.text === it.text) ?? (it.text ? null : all[0]))?.remove();
       continue;
     }
+    // A delivered message replaces its queued bubble (covers optimistic bubbles and text-less dequeues).
+    if (it.k === "user" && it.text) [...st.queue.children].find((q) => q.dataset.text === it.text.trim())?.remove();
     const el = itemEl(it, st);
     if (!el) continue;
     if (it.ts) el.dataset.ts = it.ts;
@@ -1331,6 +1380,24 @@ function nav(hash) {
   else location.hash = hash;
 }
 
+// Freeze the page behind a sheet at its current scroll position (overflow:hidden would reset it to the top).
+let lockedY = null;
+function lockScroll() {
+  if (lockedY !== null) return;
+  lockedY = scrollY;
+  const b = document.body.style;
+  b.position = "fixed"; b.top = `-${lockedY}px`; b.left = "0"; b.right = "0";
+  document.documentElement.classList.add("sheet-open");
+}
+function unlockScroll() {
+  if (lockedY === null) return;
+  const y = lockedY; lockedY = null;
+  const b = document.body.style;
+  b.position = b.top = b.left = b.right = "";
+  document.documentElement.classList.remove("sheet-open");
+  window.scrollTo(0, y);
+}
+
 // Bottom sheets: close button, drag-down to dismiss, Back button closes, page behind doesn't scroll.
 const openSheets = [];
 function sheet(html) {
@@ -1343,7 +1410,7 @@ function sheet(html) {
     closed = true;
     const i = openSheets.indexOf(entry);
     if (i >= 0) openSheets.splice(i, 1);
-    if (!openSheets.length) document.documentElement.classList.remove("sheet-open");
+    if (!openSheets.length) unlockScroll();
     if (animate) {
       sh.style.transition = "transform .2s ease-in"; sh.style.transform = "translateY(100%)";
       scrim.style.transition = "opacity .2s"; scrim.style.opacity = "0";
@@ -1363,7 +1430,7 @@ function sheet(html) {
   const entry = { n: Date.now() + Math.random(), remove };
   openSheets.push(entry);
   history.pushState({ awaySheet: entry.n }, "");
-  document.documentElement.classList.add("sheet-open");
+  lockScroll();
   scrim.onclick = close;
   sh.querySelector(".sheet-x").onclick = close;
   document.body.append(scrim, sh);

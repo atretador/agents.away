@@ -1,5 +1,5 @@
 import { join, basename, resolve } from "node:path";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, statSync, openSync, readSync, closeSync } from "node:fs";
 import { timingSafeEqual } from "node:crypto";
 import { hostname } from "node:os";
 import type { ServerWebSocket } from "bun";
@@ -389,11 +389,22 @@ function startWatch(ws: ServerWebSocket<WsData>, id: string, chat: boolean, term
   }
 }
 
+/** Byte offset just after the last complete line (never inside a line that's still being written). */
 function lastNewlineBefore(path: string, size: number) {
-  if (!size) return 0;
-  const tail = readRange(path, Math.max(0, size - 65536), size);
-  const i = tail.lastIndexOf("\n");
-  return i < 0 ? size : size - (Buffer.byteLength(tail) - i - 1);
+  let hi = size;
+  while (hi > 0) {
+    const lo = Math.max(0, hi - (1 << 20));
+    const buf = readRangeBytes(path, lo, hi);
+    const i = buf.lastIndexOf(10);
+    if (i >= 0) return lo + i + 1;
+    hi = lo;
+  }
+  return 0;
+}
+function readRangeBytes(path: string, start: number, end: number) {
+  const fd = openSync(path, "r");
+  try { const b = Buffer.alloc(end - start); const n = readSync(fd, b, 0, b.length, start); return b.subarray(0, n); }
+  finally { closeSync(fd); }
 }
 
 async function tickWatchers() {
@@ -407,9 +418,14 @@ async function tickWatchers() {
         const size = fileSize(path);
         if (size < w.offset) { startWatch(ws, w.id, w.chat, w.term); continue; }
         if (size > w.offset) {
-          const end = lastNewlineBefore(path, size);
-          if (end > w.offset) {
-            const { items } = parseLines(readRange(path, w.offset, end), w.offset);
+          // Only consume complete lines: Claude Code writes huge (100s of KB) log lines in pieces, and
+          // stopping mid-line would make us skip whatever comes after it.
+          const chunk = readRange(path, w.offset, size);
+          const cut = chunk.lastIndexOf("\n");
+          if (cut >= 0) {
+            const text = chunk.slice(0, cut + 1);
+            const end = w.offset + Buffer.byteLength(text);
+            const { items } = parseLines(text, w.offset);
             w.offset = end;
             if (items.length) ws.send(JSON.stringify({ type: "chat", id: w.id, items, end }));
           }
@@ -564,6 +580,18 @@ async function api(req: Request, url: URL, deviceKey: string): Promise<Response>
     sessions.delete(id);
     broadcast({ type: "sessions", sessions: publicSessions() });
     return json({ ok: true, archived: true });
+  }
+  // "Send now" for a queued message: Claude Code delivers queued input on Ctrl+X Ctrl+S; OpenCode takes
+  // its inbox once the current step stops, so interrupt it.
+  if ((mm = m(/^\/api\/session\/([\w-]+)\/sendnow$/)) && req.method === "POST") {
+    const s = sessions.get(mm[1]);
+    if (!s) return err("Session not found", 404);
+    if (s.kind === "opencode") await OC.interrupt(s.id);
+    else {
+      const t = requireSession(s.id);
+      await sendKeys(t.tmux.socket, t.tmux.pane, ["C-x", "C-s"]);
+    }
+    return json({ ok: true });
   }
   if ((mm = m(/^\/api\/session\/([\w-]+)\/unarchive$/)) && req.method === "POST") {
     await OC.archive(mm[1], false);

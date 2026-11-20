@@ -555,7 +555,6 @@ mark { background: color-mix(in oklab, var(--accent) 30%, transparent); color: v
 .msg-note { overflow-wrap: anywhere; }
 
 /* ── sheet chrome ── */
-html.sheet-open, html.sheet-open body { overflow: hidden; }
 .sheet { overscroll-behavior: contain; touch-action: pan-y; }
 .sheet-top { position: sticky; top: -8px; z-index: 2; margin: -8px -16px 4px; padding: 8px 16px 2px; background: var(--bg); display: flex; justify-content: center; align-items: center; min-height: 44px; touch-action: none; cursor: grab; }
 .sheet-top .grab { margin: 0; width: 44px; height: 5px; }
@@ -586,3 +585,11 @@ html.sheet-open, html.sheet-open body { overflow: hidden; }
 .section-h:has(.sec-act) { align-items: center; margin-bottom: 6px; }
 .sec-act { width: 34px; height: 34px; border-radius: 50%; color: var(--ink-3); margin: -6px -6px -6px 0; }
 .sec-act svg { width: 18px; height: 18px; }
+.msg-user.queued { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.msg-user.queued.local { opacity: .6; }
+.q-now { align-self: flex-end; display: inline-flex; align-items: center; gap: 6px; border: 1px solid color-mix(in oklab, var(--accent) 55%, var(--line)); background: var(--card); color: var(--accent); font: inherit; font-size: 12.5px; font-weight: 650; padding: 5px 11px; border-radius: 999px; margin-top: 4px; }
+.q-now svg { width: 13px; height: 13px; }
+.q-now:disabled { opacity: .5; }
+.newest-btn { position: fixed; right: 16px; z-index: 30; display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px 8px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font: inherit; font-size: 13px; font-weight: 650; box-shadow: 0 6px 18px rgba(0,0,0,.18); }
+.newest-btn[hidden] { display: none; }
+.newest-btn svg { width: 16px; height: 16px; color: var(--accent); }

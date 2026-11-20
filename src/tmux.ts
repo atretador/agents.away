@@ -12,7 +12,8 @@ export type Pane = {
   cwd: string;
 };
 
-const SOCKETS = ["default", TMUX_SOCKET];
+// Also watch other tmux servers by name, e.g. AWAY_EXTRA_SOCKETS=relay while migrating from an older setup.
+const SOCKETS = ["default", TMUX_SOCKET, ...(process.env.AWAY_EXTRA_SOCKETS ?? "").split(",").map((x) => x.trim()).filter(Boolean)];
 
 function args(socket: string) {
   return socket === "default" ? [] : ["-L", socket, "-f", TMUX_CONF];
@@ -56,7 +57,7 @@ export async function capture(socket: string, pane: string, opts: { ansi?: boole
 
 export const KEY_WHITELIST = new Set([
   "Escape", "Enter", "Up", "Down", "Left", "Right", "Tab", "BTab", "C-c", "C-o", "C-r", "C-t", "C-l", "Space", "BSpace",
-  "PageUp", "PageDown", "C-u", "1", "2", "3", "4", "5", "6", "7", "8", "9", "y", "n",
+  "PageUp", "PageDown", "C-u", "C-x", "C-s", "1", "2", "3", "4", "5", "6", "7", "8", "9", "y", "n",
 ]);
 
 export async function sendKeys(socket: string, pane: string, keys: string[]) {
@@ -86,6 +87,13 @@ export async function sendText(socket: string, pane: string, text: string, submi
     await tmux(socket, ["send-keys", "-t", pane, "Enter"]);
   }
 }
+
+/** The question line above a menu: the last line ending in "?" (skips link lines like "Security guide"). */
+function pickQuestion(above: string[]) {
+  for (let i = above.length - 1; i >= Math.max(0, above.length - 8); i--) if (above[i].includes("?")) return i;
+  return above.length - 1;
+}
+const trimQuestion = (q: string) => (q.includes("?") ? q.slice(0, q.lastIndexOf("?") + 1) : q).trim();
 
 export type Prompt = {
   question: string;
@@ -139,8 +147,9 @@ export function detectPrompt(screen: string): Prompt | null {
     const t = tail[i].trim();
     if (t) above.unshift(t);
   }
-  const question = above.length ? above[above.length - 1] : "Choose an option";
-  return { question, context: above.slice(0, -1).slice(-7), options, selected };
+  const qi = pickQuestion(above);
+  const question = qi >= 0 ? trimQuestion(above[qi]) : "Choose an option";
+  return { question, context: above.filter((_, j) => j !== qi).slice(-7), options, selected };
 }
 
 /** Unnumbered menus: one line marked ❯, siblings at the same indent, an "Enter to …" hint below. */
@@ -163,8 +172,9 @@ function detectPlainMenu(tail: string[]): Prompt | null {
   for (let i = a; i <= b; i++) options.push({ n: i - a + 1, label: tail[i].replace("❯", "").trim() });
   const above: string[] = [];
   for (let i = a - 1; i >= 0 && above.length < 8; i--) if (tail[i].trim()) above.unshift(tail[i].trim());
-  const question = above.length ? above[above.length - 1] : "Choose an option";
-  return { question, context: above.slice(0, -1).slice(-6), options, selected: sel - a + 1 };
+  const qi = pickQuestion(above);
+  const question = qi >= 0 ? trimQuestion(above[qi]) : "Choose an option";
+  return { question, context: above.filter((_, j) => j !== qi).slice(-6), options, selected: sel - a + 1 };
 }
 
 export async function chooseOption(socket: string, pane: string, pick: (p: Prompt) => number) {

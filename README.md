@@ -160,6 +160,7 @@ Settings like quiet-while-at-PC and which events notify you are in the app (⚙)
 | `AWAY_CONFIG_DIR` | `~/.config/agents-away` | Secrets: local API token, push keys, certificates, device sign-ins, tmux.conf |
 | `AWAY_DATA_DIR` | `~/.local/share/agents-away` | Reviews, uploads, image cache, per-session prefs |
 | `AWAY_SHELL` | your login shell | Shell used to launch sessions started from the phone |
+| `AWAY_EXTRA_SOCKETS` | none | Extra tmux servers to watch, comma-separated (`tmux -L <name>`), e.g. sessions from an older setup |
 
 Set these in the service with `systemctl --user edit agents-away`, adding `Environment=…` lines.
 
