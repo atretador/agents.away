@@ -154,6 +154,16 @@ User-facing docs: [README.md](README.md). This file is for coding agents changin
   Bottom sheets go through `sheet()` (it pushes a history entry so Back closes them). Navigate with
   `nav()`, not `location.hash =`, while a sheet may be open.
 
+## Releasing
+
+Bump `version` in `package.json`, move the changelog entries into a `## X.Y.Z — date` section, commit, then
+push a `vX.Y.Z` tag. The `release` job in `.github/workflows/android.yml` waits for the maintainer's approval
+(GitHub environment `release`, the only place the signing key's secrets exist, usable by `v*` tags only),
+then signs the APK and publishes the release with `tools/package.sh`'s downloads (server-min, server-full
+with the APK in `prebuilt/`, the APK, `SHA256SUMS`) and that changelog section as notes. Keep third-party
+actions pinned to commit SHAs. The server serves `DATA_DIR/android/agents-away.apk` (built locally with
+`agents-away apk build`) or else `prebuilt/agents-away.apk`.
+
 ## Developing
 
 ```bash

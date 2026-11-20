@@ -17,6 +17,8 @@ const DATA = process.env.AWAY_DATA_DIR ?? join(homedir(), ".local/share/agents-a
 const APK_DIR = join(DATA, "android");
 const APK = join(APK_DIR, "agents-away.apk");
 const APK_META = join(APK_DIR, "agents-away.json");
+// A server-full package ships a signed APK here; one built on this PC (APK_DIR) takes precedence.
+const PREBUILT = join(dirname(realpathSync(import.meta.path)), "..", "prebuilt");
 const KEY_DIR = join(dirname(CFG), "android");
 
 function token(): string {
@@ -247,17 +249,25 @@ function addrs() {
 }
 
 /** The APK this PC serves, if one was built: {version, sha256, size, builtAt}. */
-function apkMeta(): { version: string; sha256: string; size: number; builtAt: number } | null {
-  try { return existsSync(APK) ? JSON.parse(readFileSync(APK_META, "utf8")) : null; } catch { return null; }
+function apkMeta(): { version: string; sha256: string; size: number; builtAt: number; prebuilt?: boolean } | null {
+  const read = (dir: string) => { try { return existsSync(join(dir, "agents-away.apk")) ? JSON.parse(readFileSync(join(dir, "agents-away.json"), "utf8")) : null; } catch { return null; } };
+  const own = read(APK_DIR);
+  if (own) return own;
+  const pre = read(PREBUILT);
+  return pre ? { ...pre, prebuilt: true } : null;
 }
 
 async function apk(sub = "status") {
   if (sub === "build") return apkBuild();
-  if (sub === "remove") { rmSync(APK, { force: true }); rmSync(APK_META, { force: true }); console.log("The setup page no longer offers the Android app."); return; }
+  if (sub === "remove") {
+    rmSync(APK, { force: true }); rmSync(APK_META, { force: true });
+    console.log(apkMeta() ? "Removed the APK built here; the setup page offers the one shipped with this release again." : "The setup page no longer offers the Android app.");
+    return;
+  }
   if (sub !== "status") { console.error("Usage: agents-away apk build|status|remove"); process.exit(1); }
   const m = apkMeta();
   if (!m) { console.log("No Android app built yet. Build one with: agents-away apk build   (needs JDK 17+ and the Android SDK)"); return; }
-  console.log(`Android app ${m.version}, built ${new Date(m.builtAt).toLocaleString()}, ${(m.size / 1e6).toFixed(1)} MB`);
+  console.log(`Android app ${m.version}, ${m.prebuilt ? "shipped with this release" : `built here ${new Date(m.builtAt).toLocaleString()}`}, ${(m.size / 1e6).toFixed(1)} MB`);
   console.log(`SHA-256: ${m.sha256}`);
   for (const a of addrs()) console.log(`Download: http://${a.ip}:${ONBOARD}/agents-away.apk   (${a.name})`);
 }

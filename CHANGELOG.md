@@ -18,6 +18,8 @@ version is 0.x, minor releases may change behaviour or configuration.
   `~/.config/agents-away/android`) and offer it on the setup page, with its SHA-256.
 
 ### Setup and pairing
+- Releases come as three downloads: `server-min` (server and web app), `server-full` (plus the Android app,
+  offered by the setup page without building it) and the APK alone, with `SHA256SUMS`.
 - Setup page redone for phones: choose **Android app** (no certificate) or **Web app** (certificate), each
   with its own steps marked Required or Recommended; Android/iPhone preselected from the browser.
 - `agents-away pair <interface|ip>` makes the QR codes for that address (e.g. `wg0` for a VPN) instead of

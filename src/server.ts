@@ -1291,8 +1291,10 @@ Bun.serve({
     }
     if (url.pathname === "/page-i18n.js") return (await serveStatic("/page-i18n.js"))!;
     // The Android app, when one was built on this PC (agents-away apk build).
-    const apk = join(DATA_DIR, "android", "agents-away.apk");
-    const apkInfo = readJson<{ version?: string; sha256?: string } | null>(join(DATA_DIR, "android", "agents-away.json"), null);
+    // An APK built on this PC (agents-away apk build) wins over the one shipped in a server-full package.
+    const apkDir = existsSync(join(DATA_DIR, "android", "agents-away.apk")) ? join(DATA_DIR, "android") : join(ROOT, "prebuilt");
+    const apk = join(apkDir, "agents-away.apk");
+    const apkInfo = readJson<{ version?: string; sha256?: string } | null>(join(apkDir, "agents-away.json"), null);
     const hasApk = !!apkInfo?.sha256 && existsSync(apk);
     if (url.pathname === "/agents-away.apk") {
       if (!hasApk) return new Response("No Android app has been built on this PC (agents-away apk build).", { status: 404 });

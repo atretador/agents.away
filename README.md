@@ -106,7 +106,17 @@ git clone <this repo> ~/agents.away && cd ~/agents.away
 agents-away pair
 ```
 
-`install.sh` is safe to re-run (that's also how you update). It:
+Or download a release instead of cloning: each [release](https://github.com/atretador/agents.away/releases)
+has three files (check them against its `SHA256SUMS`):
+
+| Download | What |
+|---|---|
+| `agents-away-server-min-vX.Y.Z.tar.gz` | The server and web app. Unpack it where it should live, then `./install.sh`. |
+| `agents-away-server-full-vX.Y.Z.tar.gz` | The same, plus the Android app: the PC's setup page offers it right away, no Android SDK needed. |
+| `agents-away-vX.Y.Z.apk` | The Android app on its own (Android 10+). |
+
+`install.sh` is safe to re-run (that's also how you update; with a release, unpack the new one over the old
+folder first). It:
 
 1. installs the npm dependencies with `bun install`;
 2. creates a private certificate authority and an HTTPS certificate for this PC's addresses
@@ -174,11 +184,12 @@ profile shows that PC's own web app, so everything works the same.
     SHA-256 (`agents-away apk status` shows it on the PC). The app is signed with a key created on the
     first build in `~/.config/agents-away/android/`; back it up, since updates must use the same key.
   - *From GitHub:* download `agents-away-vX.Y.Z.apk` from the
-    [releases](https://github.com/atretador/agents.away/releases) and check it against the `.sha256` next
-    to it.
+    [releases](https://github.com/atretador/agents.away/releases) and check it against its `SHA256SUMS`.
+    Installing the `server-full` package does the same for you: its setup page offers that APK.
 
-  An APK built on your PC and one from GitHub are signed with different keys, so one can't update the
-  other: stick to one source (or uninstall first). Allow your browser to install apps when Android asks.
+  Releases are signed with the project's key. An APK you build with `agents-away apk build` is signed with
+  your own key instead, and Android won't install one over the other: stick to one source (or uninstall
+  first). Allow your browser to install apps when Android asks.
 - **Add a PC:** run `agents-away pair` on the PC and scan the **second** QR code (the pairing link) with
   **Scan QR code**, or paste the link. No certificate install: the link carries the fingerprint of the
   PC's CA, and the app trusts that CA for that PC only. Pairing the same PC again over another address
