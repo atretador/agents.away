@@ -1,0 +1,274 @@
+#!/usr/bin/env bun
+// Agents Away CLI: Claude Code hook forwarding, image reviews, notifications, pairing.
+import { readFileSync, existsSync, statSync } from "node:fs";
+import { homedir, networkInterfaces } from "node:os";
+import { join, basename, resolve } from "node:path";
+
+const CFG = join(process.env.AWAY_CONFIG_DIR ?? join(homedir(), ".config/agents-away"), "config.json");
+const PORT = Number(process.env.AWAY_LOCAL_PORT ?? 7442);
+const HTTPS = Number(process.env.AWAY_PORT ?? 7443);
+const ONBOARD = Number(process.env.AWAY_ONBOARD_PORT ?? 7440);
+const BASE = `http://127.0.0.1:${PORT}`;
+
+function token(): string {
+  try { return JSON.parse(readFileSync(CFG, "utf8")).token; } catch { return ""; }
+}
+
+async function call(path: string, init: RequestInit = {}, timeoutMs = 3000) {
+  const headers = new Headers(init.headers);
+  headers.set("x-away-token", token());
+  return fetch(BASE + path, { ...init, headers, signal: AbortSignal.timeout(timeoutMs) });
+}
+
+const [cmd, ...rest] = process.argv.slice(2);
+
+function usage() {
+  console.log(`agents-away — phone companion for Claude Code sessions
+
+  agents-away review [options] <file>...   Send images/videos to the phone for approval
+      -t, --title <text>     Short title (default: first file name)
+      -m, --message <text>   What to look at / the question to answer
+      -w, --wait <seconds>   How long to block for an answer (default 540, max 600)
+      --async                Don't wait; the answer is typed into this session later
+  agents-away review --list                Pending reviews sent from this session
+  agents-away review --withdraw <id> [reason]   Take back a review the conversation already settled
+  agents-away notify <title> [body]        Send a plain push notification
+  agents-away attach [name]                Open a Agents Away session (e.g. one started from the phone) here
+                                     Detach again with Ctrl-b d — the session keeps running
+  agents-away pair                         Show the QR codes for pairing a phone
+  agents-away status                       Show what the server sees
+  agents-away hooks install|uninstall|status   Manage the Claude Code hooks Agents Away needs
+  agents-away hook                         (used by Claude Code hooks; reads JSON on stdin)`);
+}
+
+async function hook() {
+  // Never block or fail Claude: read stdin, fire, exit 0.
+  try {
+    const input = await Bun.stdin.text();
+    await call("/hook", { method: "POST", body: input, headers: { "content-type": "application/json", "x-away-pane": process.env.TMUX_PANE ?? "" } }, 1500);
+  } catch {}
+  process.exit(0);
+}
+
+/** Walk up the process tree to the Claude Code process that ran us and read its session id. */
+function ancestorSessionId(): string {
+  let pid = process.ppid;
+  for (let i = 0; i < 12 && pid > 1; i++) {
+    const f = join(homedir(), ".claude/sessions", `${pid}.json`);
+    if (existsSync(f)) { try { return JSON.parse(readFileSync(f, "utf8")).sessionId ?? ""; } catch { return ""; } }
+    try { pid = Number(readFileSync(`/proc/${pid}/stat`, "utf8").split(") ")[1].split(" ")[1]); } catch { break; }
+  }
+  return "";
+}
+
+async function review(args: string[]) {
+  let title = "", message = "", wait = 540, async = false;
+  const files: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "-t" || a === "--title") title = args[++i] ?? "";
+    else if (a === "-m" || a === "--message") message = args[++i] ?? "";
+    else if (a === "-w" || a === "--wait") wait = Math.min(600, Math.max(0, Number(args[++i] ?? 540)));
+    else if (a === "--async") async = true;
+    else if (a === "--withdraw") { await withdraw(args[++i], args.slice(i + 1)); return; }
+    else if (a === "--list") { await listPending(); return; }
+    else if (a === "-h" || a === "--help") { usage(); return; }
+    else files.push(a);
+  }
+  if (!files.length) { console.error("agents-away review: give at least one file"); process.exit(2); }
+  const fd = new FormData();
+  for (const f of files) {
+    const p = resolve(f);
+    if (!existsSync(p) || !statSync(p).isFile()) { console.error(`agents-away review: no such file: ${f}`); process.exit(2); }
+    fd.append("file", Bun.file(p), basename(p));
+  }
+  fd.append("title", title || basename(files[0]));
+  fd.append("message", message);
+  fd.append("pane", process.env.TMUX_PANE ?? "");
+  const tmuxSock = (process.env.TMUX ?? "").split(",")[0];
+  fd.append("socket", tmuxSock ? basename(tmuxSock) : "default");
+  fd.append("session_id", process.env.CLAUDE_CODE_SESSION_ID || ancestorSessionId());
+  if (async || wait === 0) fd.append("async", "1");
+  let res: Response;
+  try { res = await call("/review", { method: "POST", body: fd }, 30000); }
+  catch { console.error("agents-away review: the Agents Away server isn't running (systemctl --user start agents-away)"); process.exit(1); }
+  const out = await res.json() as any;
+  if (!res.ok) { console.error("agents-away review: " + out.error); process.exit(1); }
+  const id = out.id;
+  if (async || wait === 0) {
+    console.log(`Sent review ${id} to the phone. The answer will be typed into this session as a message when the user responds.`);
+    return;
+  }
+  console.error(`Sent review ${id} to the phone; waiting up to ${wait}s for an answer…`);
+  const deadline = Date.now() + wait * 1000;
+  while (Date.now() < deadline) {
+    const left = Math.ceil((deadline - Date.now()) / 1000);
+    const chunk = Math.min(50, left);
+    try {
+      const r = await call(`/review/${id}/wait?timeout=${chunk}`, {}, (chunk + 10) * 1000);
+      const j = await r.json() as any;
+      if (j.status === "answered") {
+        const d = j.decision === "approved" ? "APPROVED" : j.decision === "rejected" ? "REJECTED" : "CHANGES REQUESTED";
+        console.log(`Review ${id}: ${d}`);
+        if (j.comment) console.log(`Comment: ${j.comment}`);
+        return;
+      }
+      if (j.status === "dismissed" || j.status === "withdrawn") {
+        console.log(`Review ${id}: ${j.status.toUpperCase()} — no decision${j.closedReason ? ` (${j.closedReason})` : ""}. Don't resend it unless the user asks.`);
+        return;
+      }
+      if (j.chatMessage) {
+        console.log(`Review ${id} is still open, but the user sent a chat message while you waited:\n\n  ${j.chatMessage.replace(/\n/g, "\n  ")}\n\n(It also arrives as a normal user message.) If that message answers or makes review ${id} unnecessary, withdraw it: agents-away review --withdraw ${id}\nOtherwise leave it open; when the user answers on the phone the answer will be typed into this session.`);
+        return;
+      }
+    } catch { await Bun.sleep(2000); }
+  }
+  const d = await call(`/review/${id}/detach`, { method: "POST" }).then((r) => r.json()).catch(() => ({})) as any;
+  console.log(
+    d.deliverable
+      ? `No answer yet for review ${id}. When the user responds, the answer will be typed into this session as a new message — carry on with other work or end your turn.`
+      : `No answer yet for review ${id}. This session isn't in tmux, so the answer can't be delivered automatically; ask the user to check Agents Away.`,
+  );
+}
+
+async function withdraw(id: string | undefined, rest: string[]) {
+  if (!id) { console.error("agents-away review --withdraw <id> [reason]"); process.exit(2); }
+  const reason = rest.filter((a) => a !== "-m" && a !== "--message").join(" ");
+  const r = await call(`/review/${id}/withdraw`, { method: "POST", body: JSON.stringify({ reason }), headers: { "content-type": "application/json" } });
+  const j = await r.json() as any;
+  if (!r.ok) { console.error("agents-away review: " + j.error); process.exit(1); }
+  console.log(j.already ? `Review ${id} was already ${j.already}.` : `Withdrew review ${id}; it's gone from the user's pending list.`);
+}
+
+async function listPending() {
+  const sid = process.env.CLAUDE_CODE_SESSION_ID || ancestorSessionId();
+  const j = await (await call(`/reviews?session=${encodeURIComponent(sid)}`)).json() as any;
+  if (!j.reviews.length) { console.log(sid ? "No pending reviews from this session." : "No pending reviews."); return; }
+  for (const r of j.reviews) console.log(`${r.id}  ${r.title}${r.message ? ` — ${r.message.slice(0, 80)}` : ""}  (${Math.round((Date.now() - r.createdAt) / 60000)} min ago)`);
+}
+
+async function notify(args: string[]) {
+  const [title, ...body] = args;
+  const r = await call("/notify", { method: "POST", body: JSON.stringify({ title, body: body.join(" ") }), headers: { "content-type": "application/json" } });
+  const j = await r.json() as any;
+  console.log(j.sent ? `Sent to ${j.sent} device(s)` : "No phones subscribed yet");
+}
+
+function addrs() {
+  const out: { name: string; ip: string }[] = [];
+  for (const [name, list] of Object.entries(networkInterfaces())) {
+    if (/^(docker|br-|virbr|veth|lo)/.test(name)) continue;
+    for (const a of list ?? []) if (a.family === "IPv4" && !a.internal) out.push({ name, ip: a.address });
+  }
+  return out;
+}
+
+async function qr(text: string) {
+  const p = Bun.spawn(["qrencode", "-t", "ansiutf8", "-m", "2", text], { stdout: "inherit", stderr: "inherit" });
+  await p.exited;
+}
+
+async function pair() {
+  let code: string, ttl: number;
+  try {
+    const j = await (await call("/pair-code", { method: "POST" })).json() as any;
+    if (!j.code) throw new Error(j.error ?? "no code");
+    code = j.code; ttl = j.expiresInSec;
+  } catch { console.error("Agents Away server isn't running — start it with: systemctl --user start agents-away"); process.exit(1); }
+  const list = addrs();
+  const lan = list.find((a) => !a.name.startsWith("wg")) ?? list[0];
+  console.log("\n\x1b[33m⚠ The pairing link below signs a phone in with full control of your sessions (typing, approving\n  commands). Use it only on your own phone, over your own LAN or VPN. Never expose Agents Away to the internet.\x1b[0m");
+  console.log("\n1) On the phone, install the certificate (once):");
+  for (const a of list) console.log(`   http://${a.ip}:${ONBOARD}/   (${a.name})`);
+  await qr(`http://${lan.ip}:${ONBOARD}/`);
+  console.log(`\n2) Then open the pairing link — it works once, within ${Math.round(ttl / 60)} minutes:`);
+  for (const a of list) console.log(`   https://${a.ip}:${HTTPS}/pair?t=${code}   (${a.name})`);
+  await qr(`https://${lan.ip}:${HTTPS}/pair?t=${code}`);
+  console.log("   Over WireGuard, use the wg address instead of the LAN one. Each address is paired separately");
+  console.log("   (run agents-away pair again for another phone or address). Manage signed-in phones in the app: ⚙ → Paired devices.\n");
+}
+
+async function status() {
+  try {
+    const j = await (await call("/status")).json() as any;
+    console.log(`${j.subscribers} phone(s) subscribed to notifications`);
+    for (const s of j.sessions) console.log(`  ${s.status.padEnd(8)} ${s.canReply ? "reply" : "watch"}  ${(s.title || s.name).slice(0, 50).padEnd(50)} ${s.home}`);
+  } catch { console.error("Agents Away server isn't running"); process.exit(1); }
+}
+
+async function attach(args: string[]) {
+  const conf = join(process.env.AWAY_CONFIG_DIR ?? join(homedir(), ".config/agents-away"), "tmux.conf");
+  const tm = ["tmux", "-L", "agents-away", "-f", conf];
+  const ls = Bun.spawnSync([...tm, "list-sessions", "-F", "#{session_name}\t#{session_attached}\t#{pane_current_path}"]);
+  const rows = ls.stdout.toString().trim().split("\n").filter(Boolean).map((l) => {
+    const [name, att, cwd] = l.split("\t");
+    return { name, attached: att !== "0", cwd: cwd.replace(homedir(), "~") };
+  });
+  if (!rows.length) { console.log("No Agents Away sessions running."); return; }
+  let target = args[0];
+  if (target && !rows.some((r) => r.name === target)) {
+    const m = rows.filter((r) => r.name.includes(target));
+    if (m.length !== 1) { console.error(m.length ? `"${target}" matches several: ${m.map((r) => r.name).join(", ")}` : `No session matching "${target}"`); process.exit(1); }
+    target = m[0].name;
+  }
+  if (!target) {
+    if (rows.length === 1) target = rows[0].name;
+    else {
+      rows.forEach((r, i) => console.log(`  ${String(i + 1).padStart(2)}) ${r.name.padEnd(24)} ${r.cwd}${r.attached ? "  (open elsewhere)" : ""}`));
+      const ans = prompt("Attach to which? [1]") || "1";
+      const r = rows[Number(ans) - 1] ?? rows.find((x) => x.name === ans);
+      if (!r) { console.error("No such session"); process.exit(1); }
+      target = r.name;
+    }
+  }
+  const cmd = process.env.TMUX ? [...tm, "switch-client", "-t", "=" + target] : [...tm, "attach-session", "-t", "=" + target];
+  if (process.env.TMUX) { console.error("You're inside another tmux; run this from a plain terminal."); process.exit(1); }
+  const p = Bun.spawn(cmd, { stdin: "inherit", stdout: "inherit", stderr: "inherit" });
+  process.exit(await p.exited);
+}
+
+// ───────── Claude Code hooks (install into ~/.claude/settings.json) ─────────
+const HOOK_EVENTS = ["Notification", "Stop", "UserPromptSubmit", "PostToolUse"];
+async function hooks(sub: string | undefined) {
+  const { writeFileSync, copyFileSync, mkdirSync } = await import("node:fs");
+  const dir = join(homedir(), ".claude");
+  const file = join(dir, "settings.json");
+  const command = `${join(homedir(), ".local/bin/agents-away")} hook`;
+  let settings: any = {};
+  if (existsSync(file)) {
+    try { settings = JSON.parse(readFileSync(file, "utf8")); }
+    catch { console.error(`agents-away hooks: ${file} isn't valid JSON — not touching it.`); process.exit(1); }
+  }
+  const isOurs = (h: any) => typeof h?.command === "string" && / hook$/.test(h.command) && /agents-away/.test(h.command);
+  const present = HOOK_EVENTS.filter((ev) => (settings.hooks?.[ev] ?? []).some((m: any) => (m.hooks ?? []).some(isOurs)));
+  if (sub === "status" || !sub) {
+    console.log(present.length === HOOK_EVENTS.length ? "Agents Away hooks are installed." : present.length ? `Partly installed: ${present.join(", ")}` : "Agents Away hooks are not installed.");
+    return;
+  }
+  if (sub !== "install" && sub !== "uninstall") { console.error("agents-away hooks install|uninstall|status"); process.exit(2); }
+  mkdirSync(dir, { recursive: true });
+  if (existsSync(file)) copyFileSync(file, `${file}.bak.agents-away-${new Date().toISOString().replace(/[:.]/g, "-")}`);
+  settings.hooks ??= {};
+  for (const ev of HOOK_EVENTS) {
+    const list: any[] = (settings.hooks[ev] ??= []);
+    // drop our entries (also cleans duplicates), keep everyone else's
+    for (const m of list) if (Array.isArray(m.hooks)) m.hooks = m.hooks.filter((h: any) => !isOurs(h));
+    settings.hooks[ev] = list.filter((m) => !Array.isArray(m.hooks) || m.hooks.length);
+    if (sub === "install") settings.hooks[ev].push({ ...(ev === "PostToolUse" ? { matcher: "*" } : {}), hooks: [{ type: "command", command, timeout: 5 }] });
+    if (!settings.hooks[ev].length) delete settings.hooks[ev];
+  }
+  if (!Object.keys(settings.hooks).length) delete settings.hooks;
+  writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");
+  console.log(sub === "install" ? `Installed Agents Away hooks (${HOOK_EVENTS.join(", ")}) in ${file}` : `Removed Agents Away hooks from ${file}`);
+}
+
+switch (cmd) {
+  case "hooks": await hooks(rest[0]); break;
+  case "attach": case "a": await attach(rest); break;
+  case "hook": await hook(); break;
+  case "review": await review(rest); break;
+  case "notify": await notify(rest); break;
+  case "pair": await pair(); break;
+  case "status": await status(); break;
+  default: usage();
+}

@@ -1,0 +1,16 @@
+{
+  "name": "agents-away",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun src/server.ts"
+  },
+  "dependencies": {
+    "ansi_up": "^6.0.6",
+    "dompurify": "^3.4.18",
+    "marked": "^18.2.1",
+    "sharp": "^0.35.5",
+    "web-push": "^4.0.0"
+  },
+  "license": "MIT"
+}

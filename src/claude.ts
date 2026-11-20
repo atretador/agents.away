@@ -1,0 +1,283 @@
+import { join, basename } from "node:path";
+import { readdirSync, readlinkSync, statSync, openSync, readSync, closeSync, existsSync } from "node:fs";
+import { CLAUDE_DIR } from "./config";
+import type { Pane } from "./tmux";
+
+export type ClaudeProc = {
+  pid: number;
+  sessionId: string;
+  cwd: string;
+  name: string;
+  status: string;
+  tty: string | null;
+  startedAt: number;
+  statusUpdatedAt: number;
+};
+
+const SESS_DIR = join(CLAUDE_DIR, "sessions");
+const PROJ_DIR = join(CLAUDE_DIR, "projects");
+
+export async function listClaudeProcs(): Promise<ClaudeProc[]> {
+  const out: ClaudeProc[] = [];
+  let files: string[] = [];
+  try { files = readdirSync(SESS_DIR).filter((f) => /^\d+\.json$/.test(f)); } catch {}
+  for (const f of files) {
+    try {
+      const d = await Bun.file(join(SESS_DIR, f)).json();
+      if (d.kind && d.kind !== "interactive") continue;
+      const pid = d.pid;
+      if (!existsSync(`/proc/${pid}`)) continue;
+      let tty: string | null = null;
+      try { tty = readlinkSync(`/proc/${pid}/fd/0`); } catch {}
+      if (tty && !tty.startsWith("/dev/pts")) tty = null;
+      out.push({ pid, sessionId: d.sessionId, cwd: d.cwd, name: d.name ?? basename(d.cwd), status: d.status ?? "unknown", tty, startedAt: d.startedAt ?? 0, statusUpdatedAt: d.statusUpdatedAt ?? 0 });
+    } catch {}
+  }
+  return out;
+}
+
+/** Find the pane whose process tree contains pid (tty match is the fast path). */
+export function matchPane(proc: ClaudeProc, panes: Pane[]): Pane | null {
+  if (proc.tty) {
+    const p = panes.find((p) => p.tty === proc.tty);
+    if (p) return p;
+  }
+  return null;
+}
+
+export function ttyLastInput(tty: string | null): number {
+  if (!tty) return 0;
+  try { return statSync(tty).atimeMs; } catch { return 0; }
+}
+
+const transcriptCache = new Map<string, string>();
+export function transcriptPath(sessionId: string, cwd?: string): string | null {
+  const c = transcriptCache.get(sessionId);
+  if (c && existsSync(c)) return c;
+  if (cwd) {
+    const p = join(PROJ_DIR, cwd.replace(/[^a-zA-Z0-9]/g, "-"), sessionId + ".jsonl");
+    if (existsSync(p)) { transcriptCache.set(sessionId, p); return p; }
+  }
+  try {
+    for (const d of readdirSync(PROJ_DIR)) {
+      const p = join(PROJ_DIR, d, sessionId + ".jsonl");
+      if (existsSync(p)) { transcriptCache.set(sessionId, p); return p; }
+    }
+  } catch {}
+  return null;
+}
+
+export function readRange(path: string, start: number, end: number): string {
+  const len = Math.max(0, end - start);
+  if (!len) return "";
+  const fd = openSync(path, "r");
+  try {
+    const buf = Buffer.alloc(len);
+    const n = readSync(fd, buf, 0, len, start);
+    return buf.subarray(0, n).toString("utf8");
+  } finally { closeSync(fd); }
+}
+
+export function fileSize(path: string) {
+  try { return statSync(path).size; } catch { return 0; }
+}
+
+export type Item =
+  | { k: "user"; text: string; ts?: string }
+  | { k: "command"; text: string; ts?: string }
+  | { k: "text"; text: string; ts?: string }
+  | { k: "tool"; id: string; name: string; summary: string; detail: string; ts?: string }
+  | { k: "result"; id: string; text: string; error: boolean }
+  | { k: "queued"; text: string; ts?: string }
+  | { k: "unqueue"; text?: string; ts?: string };
+
+function clip(s: string, n: number) {
+  return s.length > n ? s.slice(0, n) + `\n… (${s.length - n} more chars)` : s;
+}
+
+function toolSummary(name: string, input: any): string {
+  if (!input || typeof input !== "object") return "";
+  const pick = input.description || input.command || input.file_path || input.path || input.pattern || input.url || input.query || input.prompt || input.skill || input.subject;
+  if (name === "Bash" && input.command) return input.description ? `${input.description}` : String(input.command).split("\n")[0];
+  if (typeof pick === "string") return pick.split("\n")[0].slice(0, 200);
+  return "";
+}
+
+const REMINDER = /<system-reminder>[\s\S]*?<\/system-reminder>/g;
+
+function userText(s: string): Item | null {
+  s = s.replace(REMINDER, "").trim();
+  if (!s) return null;
+  const cmd = s.match(/<command-name>([^<]*)<\/command-name>/);
+  if (cmd) {
+    const a = s.match(/<command-args>([^<]*)<\/command-args>/);
+    return { k: "command", text: (cmd[1] + " " + (a?.[1] ?? "")).trim() };
+  }
+  if (/^<(local-command|bash-|task-notification|command-message)/.test(s)) return null;
+  return { k: "user", text: s };
+}
+
+export type Parsed = { items: Item[]; title?: string };
+
+/** Parse transcript lines. With `base` (byte offset of `text`), every item gets `o` = its line's offset. */
+export function parseLines(text: string, base?: number): Parsed {
+  const items: Item[] = [];
+  let title: string | undefined;
+  let off = base ?? 0;
+  for (const line of text.split("\n")) {
+    const lineOff = off;
+    if (base !== undefined) off += Buffer.byteLength(line) + 1;
+    if (!line || line[0] !== "{") continue;
+    // Cheap prefilter: skip the (huge) api-request blobs and bookkeeping lines without parsing them.
+    const head = line.slice(0, 40);
+    if (!head.startsWith('{"parentUuid"') && !head.startsWith('{"type":"queue-operation"') && !head.startsWith('{"type":"ai-title"')) continue;
+    let o: any;
+    try { o = JSON.parse(line); } catch { continue; }
+    const n0 = items.length;
+    parseOne(o, items, (t) => (title = t));
+    if (base !== undefined) for (let i = n0; i < items.length; i++) (items[i] as any).o = lineOff;
+  }
+  return { items, title };
+}
+
+function parseOne(o: any, items: Item[], setTitle: (t: string) => void) {
+    if (o.type === "ai-title" && o.aiTitle) { setTitle(o.aiTitle); return; }
+    if (o.isSidechain) return;
+    const ts = o.timestamp;
+    if (o.type === "queue-operation") {
+      const c = typeof o.content === "string" ? o.content : "";
+      if (o.operation === "enqueue") { if (c && !c.startsWith("<")) items.push({ k: "queued", text: c, ts }); }
+      else items.push({ k: "unqueue", text: c || undefined, ts });
+      return;
+    }
+    if (o.type === "attachment" && o.attachment?.type === "queued_command") {
+      const pr = o.attachment.prompt;
+      const t = typeof pr === "string" ? pr : Array.isArray(pr) ? pr.filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n") : "";
+      const it = userText(t);
+      if (it) items.push({ ...it, ts });
+      return;
+    }
+    if (o.type === "user" && !o.isMeta) {
+      const c = o.message?.content;
+      if (typeof c === "string") { const it = userText(c); if (it) items.push({ ...it, ts }); }
+      else if (Array.isArray(c)) {
+        for (const b of c) {
+          if (b.type === "text") { const it = userText(b.text ?? ""); if (it) items.push({ ...it, ts }); }
+          else if (b.type === "tool_result") {
+            let t = "";
+            if (typeof b.content === "string") t = b.content;
+            else if (Array.isArray(b.content)) t = b.content.map((x: any) => (x.type === "text" ? x.text : x.type === "image" ? "[image]" : "")).join("\n");
+            items.push({ k: "result", id: b.tool_use_id, text: clip(t.replace(REMINDER, "").trim(), 1500), error: !!b.is_error });
+          }
+        }
+      }
+    } else if (o.type === "assistant") {
+      const c = o.message?.content;
+      if (!Array.isArray(c)) return;
+      for (const b of c) {
+        if (b.type === "text" && b.text?.trim()) items.push({ k: "text", text: b.text, ts });
+        else if (b.type === "tool_use") {
+          items.push({ k: "tool", id: b.id, name: b.name, summary: toolSummary(b.name, b.input), detail: clip(JSON.stringify(b.input, null, 2), 1500), ts });
+        }
+      }
+    }
+}
+
+/** Read backwards from `before` until we have at least `want` items (or hit the start). */
+export function readTail(path: string, before: number, want = 120): { items: Item[]; start: number; title?: string } {
+  let start = before;
+  let chunk = 512 * 1024;
+  let parsed: Parsed = { items: [] };
+  while (start > 0) {
+    start = Math.max(0, before - chunk);
+    let text = readRange(path, start, before);
+    if (start > 0) {
+      const nl = text.indexOf("\n");
+      if (nl < 0) { chunk *= 2; continue; }
+      start += Buffer.byteLength(text.slice(0, nl + 1));
+      text = text.slice(nl + 1);
+    }
+    parsed = parseLines(text, start);
+    if (parsed.items.length >= want || chunk >= 32 * 1024 * 1024) break;
+    chunk *= 4;
+  }
+  let items = parsed.items;
+  if (items.length > want) {
+    // Keep the newest `want`, cutting at a line boundary so "Show earlier" resumes exactly there.
+    let cut = items.length - want;
+    const o = (items[cut] as any).o;
+    while (cut > 0 && (items[cut - 1] as any).o === o) cut--;
+    items = items.slice(cut);
+    start = (items[0] as any).o;
+  }
+  return { items, start, title: parsed.title };
+}
+
+const titleCache = new Map<string, { size: number; title: string | null }>();
+export function sessionTitle(path: string | null): string | null {
+  if (!path) return null;
+  const size = fileSize(path);
+  const c = titleCache.get(path);
+  if (c && c.size === size) return c.title;
+  let title: string | null = c?.title ?? null;
+  const text = readRange(path, Math.max(0, size - 256 * 1024), size);
+  const m = [...text.matchAll(/"type":"ai-title","aiTitle":"((?:[^"\\]|\\.)*)"/g)].pop();
+  if (m) { try { title = JSON.parse(`"${m[1]}"`); } catch {} }
+  else if (!title) {
+    const lp = [...text.matchAll(/"type":"last-prompt","lastPrompt":"((?:[^"\\]|\\.)*)"/g)].pop();
+    if (lp) { try { title = JSON.parse(`"${lp[1]}"`).slice(0, 80); } catch {} }
+  }
+  titleCache.set(path, { size, title });
+  return title;
+}
+
+/** Last assistant text in the transcript (for "finished" notifications). */
+export function lastAssistantText(path: string | null): string | null {
+  if (!path) return null;
+  const size = fileSize(path);
+  const { items } = readTail(path, size, 8);
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i];
+    if (it.k === "text") return it.text;
+  }
+  return null;
+}
+
+export type Recent = { sessionId: string; cwd: string; title: string | null; mtime: number; path: string };
+
+let recentCache: { at: number; list: Recent[] } | null = null;
+export function recentSessions(limit = 25): Recent[] {
+  if (recentCache && Date.now() - recentCache.at < 20_000) return recentCache.list.slice(0, limit);
+  const all: Recent[] = [];
+  try {
+    for (const d of readdirSync(PROJ_DIR)) {
+      const dir = join(PROJ_DIR, d);
+      let files: string[];
+      try { files = readdirSync(dir).filter((f) => f.endsWith(".jsonl")); } catch { continue; }
+      for (const f of files) {
+        const path = join(dir, f);
+        try {
+          const st = statSync(path);
+          if (st.size < 2000) continue;
+          all.push({ sessionId: f.slice(0, -6), cwd: "", title: null, mtime: st.mtimeMs, path });
+        } catch {}
+      }
+    }
+  } catch {}
+  all.sort((a, b) => b.mtime - a.mtime);
+  const list = all.slice(0, 60);
+  for (const r of list) {
+    const head = readRange(r.path, 0, 64 * 1024);
+    const m = head.match(/"cwd":"((?:[^"\\]|\\.)*)"/);
+    if (m) { try { r.cwd = JSON.parse(`"${m[1]}"`); } catch {} }
+    r.title = sessionTitle(r.path);
+  }
+  recentCache = { at: Date.now(), list: list.filter((r) => r.cwd) };
+  return recentCache.list.slice(0, limit);
+}
+
+export function knownProjectDirs(): string[] {
+  const seen = new Set<string>();
+  for (const r of recentSessions(60)) if (r.cwd && !r.cwd.startsWith("/tmp/") && existsSync(r.cwd)) seen.add(r.cwd);
+  return [...seen];
+}

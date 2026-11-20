@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Create a private CA (once) and a server certificate for this machine's addresses.
+# Re-run whenever the PC's IP changes; the phone only needs the CA installed once.
+set -euo pipefail
+DIR="${AWAY_CONFIG_DIR:-$HOME/.config/agents-away}/certs"
+mkdir -p "$DIR"; chmod 700 "$DIR"; cd "$DIR"
+
+if [[ ! -f ca.key ]]; then
+  openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes \
+    -keyout ca.key -out ca.crt -days 3650 -subj "/CN=Agents Away local CA ($(uname -n))" \
+    -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign" 2>/dev/null
+  echo "Created CA: $DIR/ca.crt"
+fi
+
+host=$(uname -n)
+san="DNS:localhost,DNS:$host,DNS:$host.local,IP:127.0.0.1"
+for ip in $(ip -4 -o addr show | awk '{print $2" "$4}' | grep -Ev '^(lo|docker|br-|virbr|veth)' | awk '{print $2}' | cut -d/ -f1); do
+  san="$san,IP:$ip"
+done
+
+openssl req -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout server.key -out server.csr \
+  -subj "/CN=$host" 2>/dev/null
+openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out server.crt -days 800 \
+  -extfile <(printf "subjectAltName=%s\nbasicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\n" "$san") 2>/dev/null
+rm -f server.csr
+chmod 600 *.key
+echo "Server certificate for: $san"

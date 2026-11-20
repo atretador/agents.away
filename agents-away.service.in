@@ -1,0 +1,17 @@
+# Rendered by install.sh into ~/.config/systemd/user/agents-away.service
+[Unit]
+Description=Agents Away — phone companion for Claude Code and OpenCode sessions
+After=network-online.target
+
+[Service]
+ExecStart=@BUN@ @ROOT@/src/server.ts
+WorkingDirectory=@ROOT@
+Environment=PATH=@PATH@
+Environment=HOME=@HOME@
+Restart=always
+RestartSec=2
+# tmux servers started by older versions may live in this cgroup; don't kill them on restart.
+KillMode=process
+
+[Install]
+WantedBy=default.target

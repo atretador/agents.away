@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs><mask id="m"><rect width="512" height="512" fill="#fff"/><circle cx="318" cy="214" r="124" fill="#000"/></mask></defs>
+  <rect width="512" height="512" fill="#1d1813"/>
+  <g transform="translate(256 256) scale(.74) translate(-256 -256)">
+    <circle cx="240" cy="270" r="142" fill="#e8794c" mask="url(#m)"/>
+    <path d="M330 150c6 40 16 50 56 56c-40 6-50 16-56 56c-6-40-16-50-56-56c40-6 50-16 56-56z" fill="#f6e1d6"/>
+  </g>
+</svg>
