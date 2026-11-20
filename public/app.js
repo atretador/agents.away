@@ -1802,13 +1802,44 @@ function renderHeadExtras(s) {
   }
 }
 function openContextInfo(id) {
-  const c = (S.sessions.find((x) => x.id === id) ?? (S.ended?.id === id ? S.ended : null))?.context;
+  const sess = S.sessions.find((x) => x.id === id) ?? (S.ended?.id === id ? S.ended : null);
+  const c = sess?.context;
   if (!c) return;
-  sheet(`<h3>Context window</h3>
+  const live = S.sessions.some((x) => x.id === id) && sess.kind !== "opencode";
+  const claudeModel = c.model && /^claude-/.test(c.model);
+  const { el } = sheet(`<h3>Context window</h3>
     <div class="ctx-big ${ctxLevel(c.pct)}"><b>${c.pct}%</b><span>used</span></div>
-    <div class="ctx-bar ${ctxLevel(c.pct)}"><i style="width:${c.pct}%"></i></div>
-    <p class="muted" style="margin:10px 0 0">${ktok(c.tokens)} of ${ktok(c.size)} tokens${c.model ? ` · ${esc(c.model)}` : ""}</p>
-    <p class="muted" style="font-size:13px;margin:8px 0 0">Counted like Claude Code's status line: the input and cached tokens of the latest reply.${c.pct >= CTX_WARN ? " Claude compacts the conversation automatically when it gets full; you can also send <b>/compact</b>." : ""}</p>`);
+    <div class="ctx-bar ${ctxLevel(c.pct)}"><i style="width:${c.pct}%"></i><em id="ctx-mark" hidden></em></div>
+    <p class="muted" style="margin:10px 0 0">${ktok(c.tokens)} of ${ktok(c.size)} tokens${c.model ? ` · ${esc(shortModel(c.model))}` : ""}</p>
+    ${claudeModel ? `<div class="ctx-sec"><div class="ctx-lbl">Compact at <span class="muted" id="ctx-at"></span></div>
+      <div class="chips" id="ctx-win"><span class="muted" style="font-size:13px">Loading…</span></div>
+      <p class="muted ctx-note">Claude Code's own setting for <b>${esc(shortModel(c.model))}</b> (the same one <code>/autocompact</code> changes), so it applies to all its sessions.</p></div>` : ""}
+    ${live && sess.canReply ? `<button class="btn block" id="ctx-now">${icon("zap")} Compact now</button>` : ""}`);
+  const nowBtn = el.querySelector("#ctx-now");
+  if (nowBtn) nowBtn.onclick = async () => {
+    const busy = S.sessions.find((x) => x.id === id)?.status === "working";
+    const msg = busy
+      ? "Claude is in the middle of something. Compacting stops that step first, then summarises the conversation to free up context. Anything typed but not sent in its terminal is cleared.\n\nYou can ask Claude to pick up where it left off afterwards."
+      : "Claude summarises the conversation so far to free up context. Anything typed but not sent in its terminal is cleared.";
+    if (!(await ask(busy ? "Stop and compact now?" : "Compact now?", msg, busy ? "Stop & compact" : "Compact", busy))) return;
+    try { await api(`/api/session/${id}/compact`, {}); toast("Compacting…"); vibrate(15); } catch (e) { toast(e.message, true); }
+  };
+  if (!claudeModel) return;
+  const box = el.querySelector("#ctx-win"), mark = el.querySelector("#ctx-mark");
+  const draw = (win) => {
+    const steps = [100, 200, 300, 400, 500, 750].map((k) => k * 1000).filter((t) => t < c.size);
+    if (typeof win === "number" && !steps.includes(win)) steps.push(win), steps.sort((a, b) => a - b);
+    box.innerHTML = `<button data-w="auto" class="${win === "auto" ? "on" : ""}">Auto</button>` + steps.map((t) => `<button data-w="${t}" class="${win === t ? "on" : ""}">${ktok(t)}</button>`).join("");
+    el.querySelector("#ctx-at").textContent = typeof win === "number" ? `· ${Math.round((win / c.size) * 100)}% of the window` : "· chosen by Claude Code";
+    mark.hidden = typeof win !== "number";
+    if (typeof win === "number") mark.style.left = Math.min(100, (win / c.size) * 100) + "%";
+    box.querySelectorAll("[data-w]").forEach((b) => (b.onclick = async () => {
+      const w = b.dataset.w === "auto" ? "auto" : +b.dataset.w;
+      try { const r = await api("/api/compact", { model: c.model, window: w }); draw(r.window); vibrate(8); toast(r.window === "auto" ? "Compact at: auto" : `Compacts at ${ktok(r.window)}`); }
+      catch (e) { toast(e.message, true); }
+    }));
+  };
+  api(`/api/compact?model=${encodeURIComponent(c.model)}`).then((r) => draw(r.window)).catch((e) => (box.innerHTML = `<span class="muted">${esc(e.message)}</span>`));
 }
 
 const AGENT_LABEL = { running: "Running", done: "Done", failed: "Failed", stopped: "Stopped" };

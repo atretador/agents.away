@@ -18,6 +18,7 @@ import { getPref, setPref, gitChanges, localImage, search } from "./extras";
 import { serveImage, variant, prewarm } from "./images";
 import * as OC from "./opencode";
 import * as Auth from "./auth";
+import { getCompactWindow, setCompactWindow } from "./compact";
 import { contextUsage, agentCounts, listAgents, agentTranscript, agentChat, type Context } from "./subagents";
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -606,6 +607,26 @@ async function api(req: Request, url: URL, deviceKey: string): Promise<Response>
       const t = requireSession(s.id);
       await sendKeys(t.tmux.socket, t.tmux.pane, ["C-x", "C-s"]);
     }
+    return json({ ok: true });
+  }
+  // Auto-compact point for a Claude model (Claude Code's own per-model setting).
+  if (p === "/api/compact") {
+    const model = url.searchParams.get("model") ?? "";
+    if (req.method === "POST") {
+      const b = await body();
+      try { return json({ window: setCompactWindow(String(b.model ?? ""), b.window === "auto" ? "auto" : Number(b.window)) }); }
+      catch (e: any) { return err(e.message, 400); }
+    }
+    try { return json({ window: getCompactWindow(model) }); } catch { return err("Can't read Claude Code's settings.json", 500); }
+  }
+  // Compact now: interrupt the current step if needed, clear the input line, run /compact.
+  if ((mm = m(/^\/api\/session\/([\w-]+)\/compact$/)) && req.method === "POST") {
+    if (sessions.get(mm[1])?.kind === "opencode") return err("Not available for OpenCode yet", 400);
+    const s = requireSession(mm[1]);
+    if (s.status === "working") { await sendKeys(s.tmux.socket, s.tmux.pane, ["Escape"]); await Bun.sleep(700); }
+    await tmux(s.tmux.socket, ["send-keys", "-t", s.tmux.pane, "C-u"]);
+    await sendText(s.tmux.socket, s.tmux.pane, "/compact", true);
+    setTimeout(refreshNow, 800);
     return json({ ok: true });
   }
   if ((mm = m(/^\/api\/session\/([\w-]+)\/unarchive$/)) && req.method === "POST") {

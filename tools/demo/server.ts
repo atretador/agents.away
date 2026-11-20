@@ -17,6 +17,7 @@ const VENDOR: Record<string, string> = {
 };
 
 const now = Date.now();
+let demoCompact: number | "auto" = 500_000;
 const min = 60_000;
 const iso = (agoMin: number) => new Date(now - agoMin * min).toISOString();
 
@@ -219,6 +220,7 @@ Bun.serve({
   async fetch(req, server) {
     const p = new URL(req.url).pathname;
     if (p === "/ws") return server.upgrade(req) ? undefined : new Response("upgrade failed", { status: 400 });
+    if (p === "/api/compact") { if (req.method === "POST") { const b = await req.json(); demoCompact = b.window; } return json({ window: demoCompact }); }
     if (p === "/api/state") return json(state());
     if (p === "/api/recent") return json({
       recent: [{ sessionId: "old1", title: "Upgrade to React 20", cwd: "/home/demo/code/site", home: "~/code/site", mtime: now - 86400_000 }],
