@@ -89,16 +89,37 @@ const ACCENTS = {
   clay: ["#c8582e", "#e8794c"], ocean: ["#2f6fd0", "#6d9ff0"], moss: ["#2f8550", "#62c283"],
   violet: ["#7448d0", "#a88bf2"], rose: ["#c13a6b", "#ee7aa3"], slate: ["#4b5563", "#a5b0c0"],
 };
-const PREF_DEFAULTS = { theme: "auto", accent: "clay", scale: 1, termSize: 12, termFit: false };
-const prefs = (() => { try { return { ...PREF_DEFAULTS, ...JSON.parse(localStorage.getItem("away.prefs") || "{}") }; } catch { return { ...PREF_DEFAULTS }; } })();
+// Themes: [key, label, preview bg, preview card, default accent]. "auto" follows the phone (Claude Light/Dark).
+const THEMES = [
+  ["auto", "Auto", "linear-gradient(135deg,#f6f2ec 50%,#16130f 50%)", "", "#e8794c"],
+  ["claude-light", "Claude Light", "#f6f2ec", "#fffdf9", "#c8582e"],
+  ["claude-dark", "Claude Dark", "#16130f", "#221d17", "#e8794c"],
+  ["light", "Light", "#f4f4f5", "#ffffff", "#2563eb"],
+  ["dark", "Dark", "#121214", "#1e1e22", "#6ea8fe"],
+  ["opencode", "OpenCode", "#0a0a0a", "#141414", "#fab283"],
+];
+const PREF_DEFAULTS = { theme: "auto", accent: "auto", scale: 1, termSize: 12, termFit: false, v: 2 };
+const prefs = (() => {
+  let p;
+  try { p = JSON.parse(localStorage.getItem("away.prefs") || "{}"); } catch { p = {}; }
+  if (p.v !== 2) { // earlier names: light/dark/black were the warm themes; "clay" was simply the default accent
+    p.theme = { light: "claude-light", dark: "claude-dark", black: "opencode" }[p.theme] ?? p.theme;
+    if (!p.accent || p.accent === "clay") p.accent = "auto";
+    p.v = 2;
+  }
+  if (!THEMES.some(([k]) => k === p.theme)) p.theme = "auto";
+  return { ...PREF_DEFAULTS, ...p };
+})();
 function savePrefs() { try { localStorage.setItem("away.prefs", JSON.stringify(prefs)); } catch {} }
 function applyPrefs() {
   const r = document.documentElement;
   if (prefs.theme === "auto") r.removeAttribute("data-theme");
   else r.setAttribute("data-theme", prefs.theme);
-  const [l, d] = ACCENTS[prefs.accent] ?? ACCENTS.clay;
-  r.style.setProperty("--acc-l", l);
-  r.style.setProperty("--acc-d", d);
+  if (ACCENTS[prefs.accent]) {
+    const [l, d] = ACCENTS[prefs.accent];
+    r.style.setProperty("--acc-l", l);
+    r.style.setProperty("--acc-d", d);
+  } else { r.style.removeProperty("--acc-l"); r.style.removeProperty("--acc-d"); } // the theme's own accent
   document.body.style.zoom = String(prefs.scale);
   requestAnimationFrame(() => {
     const bg = getComputedStyle(document.body).backgroundColor;
@@ -1630,9 +1651,9 @@ async function openSettings() {
     <button class="btn block" id="test">${icon("bell")} Send test notification</button>
     <h3 style="margin-top:26px">Appearance</h3>
     <div class="set-label">Theme</div>
-    <div class="seg-row" id="themes">${[["auto", "Auto"], ["light", "Light"], ["dark", "Dark"], ["black", "Black"]].map(([k, l]) => `<button data-theme="${k}" class="${prefs.theme === k ? "on" : ""}">${l}</button>`).join("")}</div>
+    <div class="theme-grid" id="themes">${THEMES.map(([k, l, bg, card, acc]) => `<button data-theme="${k}" class="${prefs.theme === k ? "on" : ""}"><span class="theme-prev" style="background:${bg}">${card ? `<i></i><i style="background:${card}"><b style="background:${acc}"></b></i>` : ""}</span>${l}</button>`).join("")}</div>
     <div class="set-label">Accent</div>
-    <div class="swatches">${Object.entries(ACCENTS).map(([k, [l, d]]) => `<button class="swatch ${prefs.accent === k ? "on" : ""}" data-acc="${k}" aria-label="${k}" style="background:linear-gradient(135deg, ${l} 50%, ${d} 50%)"></button>`).join("")}</div>
+    <div class="swatches"><button class="swatch auto ${prefs.accent === "auto" ? "on" : ""}" data-acc="auto" aria-label="Theme's own accent" title="The theme's own accent" style="background:conic-gradient(#e8794c,#6ea8fe,#fab283,#e8794c)">A</button>${Object.entries(ACCENTS).map(([k, [l, d]]) => `<button class="swatch ${prefs.accent === k ? "on" : ""}" data-acc="${k}" aria-label="${k}" style="background:linear-gradient(135deg, ${l} 50%, ${d} 50%)"></button>`).join("")}</div>
     <div class="set-label">App size</div>
     <div class="range-row"><input type="range" id="scale" min="0.8" max="1.4" step="0.05" value="${prefs.scale}"><span id="scalev">${Math.round(prefs.scale * 100)}%</span></div>
     <p class="muted" style="font-size:12.5px;margin:10px 2px 0">Terminal text size is on the terminal tab (A− / A+ / fit). Appearance is saved on this phone only.</p>

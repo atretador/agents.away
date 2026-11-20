@@ -40,6 +40,47 @@ const sessions = [
   { ...base, id: "s-docs", name: "cc-docs", title: "Write the v2 migration guide", cwd: "/home/demo/code/docs", home: "~/code/docs", status: "working", activityAt: now, startedAt: now - 8 * min, muted: true },
 ];
 
+// Context-window use and subagent counts (shown in the session header).
+const ctx = (pct: number, size = 1_000_000) => ({ pct, tokens: Math.round((pct / 100) * size), size, model: "claude-opus-5-5" });
+const extra: Record<string, any> = {
+  "s-tests": { context: ctx(38), agents: { total: 3, running: 1 } },
+  "s-landing": { context: ctx(64), agents: { total: 2, running: 0 } },
+  "s-api": { context: ctx(21), agents: { total: 4, running: 2 } },
+  "s-docs": { context: ctx(88), agents: null },
+};
+for (const s of sessions) Object.assign(s, extra[s.id] ?? {});
+
+// Subagents per session (Agents sheet) and their read-only chats.
+const agent = (id: string, description: string, type: string, status: string, startedMin: number, endedMin: number | null) =>
+  ({ id, description, type, status, toolUseId: null, startedAt: now - startedMin * min, endedAt: endedMin == null ? null : now - endedMin * min, depth: 1, parentAgentId: null, model: "claude-opus-5-5", summary: null });
+const agents: Record<string, any[]> = {
+  "s-api": [
+    agent("a-redis", "Check Redis client options for atomic counters", "Explore", "running", 3, null),
+    agent("a-tests", "Write rate-limit tests (burst, refill, 429)", "general-purpose", "running", 2, null),
+    agent("a-docs", "Find every public route that needs a limit", "Explore", "done", 11, 9),
+    agent("a-bench", "Benchmark middleware overhead", "general-purpose", "done", 10, 6),
+  ],
+  "s-tests": [
+    agent("t-ci", "Pull the last 20 CI runs of checkout.spec", "Explore", "running", 4, null),
+    agent("t-trace", "Read the Playwright trace of a failed run", "general-purpose", "done", 35, 31),
+    agent("t-grep", "Find other fixed waitForTimeout calls", "Explore", "done", 33, 32),
+  ],
+  "s-landing": [
+    agent("l-a11y", "Contrast check on the new CTA", "general-purpose", "done", 16, 15),
+    agent("l-copy", "Draft three headline options", "general-purpose", "done", 17, 16),
+  ],
+};
+const agentChats: Record<string, any[]> = {
+  "a-redis": [
+    { k: "user", text: "Which Redis client options give us atomic increment-with-expiry for a token bucket?", ts: iso(3) },
+    { k: "tool", id: "r1", name: "Grep", summary: "\"createClient\" in src", detail: "{}", ts: iso(3) },
+    { k: "result", id: "r1", text: "src/lib/redis.ts:4: export const redis = createClient({ url: env.REDIS_URL })", error: false },
+    { k: "tool", id: "r2", name: "Read", summary: "node_modules/redis/README.md", detail: "{}", ts: iso(2) },
+    { k: "result", id: "r2", text: "…MULTI / EXEC, EVAL scripts, client.incr()…", error: false },
+    { k: "text", text: "A small Lua script via `EVAL` is the safest: it reads the bucket, refills by elapsed time, decrements, and sets the TTL in one atomic step. `INCR` + `EXPIRE` in a `MULTI` works too but can't refill smoothly.", ts: iso(1) },
+  ],
+};
+
 // ───────── chats ─────────
 const chats: Record<string, any[]> = {
   "s-landing": [
@@ -185,6 +226,12 @@ Bun.serve({
     });
     if (/^\/api\/session\/[\w-]+\/changes$/.test(p)) return json(changes);
     if (/^\/api\/session\/[\w-]+\/info$/.test(p)) return json({ cwd: "/home/demo/code/site", title: "Demo" });
+    let am;
+    if ((am = p.match(/^\/api\/session\/([\w-]+)\/agents$/))) return json({ agents: agents[am[1]] ?? [] });
+    if ((am = p.match(/^\/api\/session\/([\w-]+)\/agent\/([\w-]+)$/))) {
+      const items = agentChats[am[2]] ?? [{ k: "text", text: "Done.", ts: iso(5) }];
+      return json({ agent: (agents[am[1]] ?? []).find((a) => a.id === am![2]) ?? null, items, start: 0, end: items.length + 1 });
+    }
     if (p === "/api/devices") return json({ signInDays: 30, devices: [{ id: "d1", created: now - 9 * 86400_000, lastSeen: now, expires: now + 30 * 86400_000, ua: "Mozilla/5.0 (Linux; Android 15; Pixel 9) Chrome/140", addr: "10.0.0.4", current: true }] });
     let m;
     if ((m = p.match(/^\/api\/review\/([\w-]+)$/))) return json(reviews.find((r) => r.id === m![1]) ?? {});

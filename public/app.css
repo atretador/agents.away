@@ -1,99 +1,85 @@
+/* ── Themes ──────────────────────────────────────────────────────────────────────────────
+   claude-light / claude-dark: warm, Claude Code's colours (coral accent). "auto" = these two, following the phone.
+   light / dark: neutral greys, blue accent.   opencode: near-black, OpenCode's palette (peach accent).
+   Light themes take the chosen accent from --acc-l, dark themes from --acc-d; with accent "auto" (unset)
+   each theme's own accent applies. */
 :root {
-  --bg: #f6f2ec;
-  --bg-2: #efe9e0;
-  --card: #fffdf9;
-  --card-2: #f8f4ee;
-  --line: #e3dbcf;
-  --line-2: #d5cab9;
-  --ink: #221d17;
-  --ink-2: #5c5348;
-  --ink-3: #8c8173;
-  --accent: var(--acc-l, #c8582e);
-  --accent-ink: #fff;
-  --accent-soft: color-mix(in oklab, var(--accent) 16%, var(--card));
-  --work: #3d6fd6;
-  --work-soft: #dfe7f8;
-  --wait: #c27a06;
-  --wait-soft: #f7ebcf;
-  --ok: #2f8a57;
-  --ok-soft: #dcefe2;
-  --bad: #c23b3b;
-  --bad-soft: #f6dcdc;
-  --term-bg: #15120e;
-  --term-ink: #e9e2d6;
-  --shadow: 0 1px 2px rgb(60 40 20 / .06), 0 4px 16px rgb(60 40 20 / .06);
   --radius: 16px;
   --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Inter", sans-serif;
   --mono: ui-monospace, "JetBrains Mono", "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-t: env(safe-area-inset-top, 0px);
+}
+/* Claude Light (also the default) */
+:root, :root[data-theme="claude-light"] {
+  --bg: #f6f2ec; --bg-2: #efe9e0; --card: #fffdf9; --card-2: #f8f4ee; --line: #e3dbcf; --line-2: #d5cab9;
+  --ink: #221d17; --ink-2: #5c5348; --ink-3: #8c8173;
+  --accent: var(--acc-l, #c8582e); --accent-ink: #fff; --accent-soft: color-mix(in oklab, var(--accent) 16%, var(--card));
+  --work: #3d6fd6; --work-soft: #dfe7f8; --wait: #c27a06; --wait-soft: #f7ebcf; --ok: #2f8a57; --ok-soft: #dcefe2; --bad: #c23b3b; --bad-soft: #f6dcdc;
+  --term-bg: #15120e; --term-ink: #e9e2d6;
+  --shadow: 0 1px 2px rgb(60 40 20 / .06), 0 4px 16px rgb(60 40 20 / .06);
   color-scheme: light;
 }
+/* Claude Dark (and Auto when the phone is in dark mode) */
+:root[data-theme="claude-dark"] {
+  --bg: #16130f; --bg-2: #1d1914; --card: #221d17; --card-2: #2a241d; --line: #342d24; --line-2: #463d31;
+  --ink: #f1ebe2; --ink-2: #bcb1a2; --ink-3: #887d6f;
+  --accent: var(--acc-d, #e8794c); --accent-ink: #1a120c; --accent-soft: color-mix(in oklab, var(--accent) 20%, var(--card));
+  --work: #7ea2f0; --work-soft: #1f2a40; --wait: #f0b440; --wait-soft: #3a2d12; --ok: #5cc08a; --ok-soft: #173325; --bad: #ec7272; --bad-soft: #3d1c1c;
+  --term-bg: #0f0d0a; --term-ink: #e9e2d6;
+  --shadow: 0 1px 2px rgb(0 0 0 / .3), 0 6px 20px rgb(0 0 0 / .25);
+  color-scheme: dark;
+}
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #16130f;
-    --bg-2: #1d1914;
-    --card: #221d17;
-    --card-2: #2a241d;
-    --line: #342d24;
-    --line-2: #463d31;
-    --ink: #f1ebe2;
-    --ink-2: #bcb1a2;
-    --ink-3: #887d6f;
-    --accent: var(--acc-d, #e8794c);
-    --accent-ink: #1a120c;
-    --accent-soft: color-mix(in oklab, var(--accent) 20%, var(--card));
-    --work: #7ea2f0;
-    --work-soft: #1f2a40;
-    --wait: #f0b440;
-    --wait-soft: #3a2d12;
-    --ok: #5cc08a;
-    --ok-soft: #173325;
-    --bad: #ec7272;
-    --bad-soft: #3d1c1c;
-    --term-bg: #0f0d0a;
+  :root:not([data-theme]) {
+    --bg: #16130f; --bg-2: #1d1914; --card: #221d17; --card-2: #2a241d; --line: #342d24; --line-2: #463d31;
+    --ink: #f1ebe2; --ink-2: #bcb1a2; --ink-3: #887d6f;
+    --accent: var(--acc-d, #e8794c); --accent-ink: #1a120c; --accent-soft: color-mix(in oklab, var(--accent) 20%, var(--card));
+    --work: #7ea2f0; --work-soft: #1f2a40; --wait: #f0b440; --wait-soft: #3a2d12; --ok: #5cc08a; --ok-soft: #173325; --bad: #ec7272; --bad-soft: #3d1c1c;
+    --term-bg: #0f0d0a; --term-ink: #e9e2d6;
     --shadow: 0 1px 2px rgb(0 0 0 / .3), 0 6px 20px rgb(0 0 0 / .25);
     color-scheme: dark;
   }
 }
-:root[data-theme="dark"], :root[data-theme="black"] {
-  --bg: #16130f;
-  --bg-2: #1d1914;
-  --card: #221d17;
-  --card-2: #2a241d;
-  --line: #342d24;
-  --line-2: #463d31;
-  --ink: #f1ebe2;
-  --ink-2: #bcb1a2;
-  --ink-3: #887d6f;
-  --accent: var(--acc-d, #e8794c);
-  --accent-ink: #1a120c;
-  --accent-soft: color-mix(in oklab, var(--accent) 20%, var(--card));
-  --work: #7ea2f0;
-  --work-soft: #1f2a40;
-  --wait: #f0b440;
-  --wait-soft: #3a2d12;
-  --ok: #5cc08a;
-  --ok-soft: #173325;
-  --bad: #ec7272;
-  --bad-soft: #3d1c1c;
-  --term-bg: #0f0d0a;
-  --shadow: 0 1px 2px rgb(0 0 0 / .3), 0 6px 20px rgb(0 0 0 / .25);
+/* Light: neutral */
+:root[data-theme="light"] {
+  --bg: #f4f4f5; --bg-2: #ebebee; --card: #ffffff; --card-2: #f7f7f8; --line: #e2e2e6; --line-2: #d1d1d7;
+  --ink: #18181b; --ink-2: #52525b; --ink-3: #85858f;
+  --accent: var(--acc-l, #2563eb); --accent-ink: #fff; --accent-soft: color-mix(in oklab, var(--accent) 12%, var(--card));
+  --work: #2563eb; --work-soft: #e0e9fb; --wait: #b45309; --wait-soft: #fbeedb; --ok: #15803d; --ok-soft: #dcf2e3; --bad: #c62828; --bad-soft: #f8dede;
+  --term-bg: #17171a; --term-ink: #e6e6ea;
+  --shadow: 0 1px 2px rgb(0 0 0 / .05), 0 4px 16px rgb(0 0 0 / .05);
+  color-scheme: light;
+}
+/* Dark: neutral */
+:root[data-theme="dark"] {
+  --bg: #121214; --bg-2: #18181b; --card: #1e1e22; --card-2: #26262b; --line: #2d2d33; --line-2: #3d3d45;
+  --ink: #f2f2f4; --ink-2: #b3b3bb; --ink-3: #80808a;
+  --accent: var(--acc-d, #6ea8fe); --accent-ink: #0b1220; --accent-soft: color-mix(in oklab, var(--accent) 18%, var(--card));
+  --work: #7aa7f5; --work-soft: #1c2638; --wait: #f2b84b; --wait-soft: #362a12; --ok: #5ec48d; --ok-soft: #16301f; --bad: #f07575; --bad-soft: #3a1b1b;
+  --term-bg: #0c0c0e; --term-ink: #e6e6ea;
+  --shadow: 0 1px 2px rgb(0 0 0 / .35), 0 6px 20px rgb(0 0 0 / .3);
   color-scheme: dark;
 }
-:root[data-theme="black"] {
-  --bg: #000;
-  --bg-2: #0e0e0e;
-  --card: #111;
-  --card-2: #171717;
-  --line: #222;
-  --line-2: #333;
-  --term-bg: #000;
-}
-@media (prefers-color-scheme: dark) {
-  :root[data-theme="auto-black"] { --bg: #000; --bg-2: #0e0e0e; --card: #111; --card-2: #171717; --line: #222; --line-2: #333; --term-bg: #000; }
+/* OpenCode: near-black, neutral greys, peach accent */
+:root[data-theme="opencode"] {
+  --bg: #0a0a0a; --bg-2: #111111; --card: #141414; --card-2: #1c1c1c; --line: #242424; --line-2: #333333;
+  --ink: #eeeeee; --ink-2: #b0b0b0; --ink-3: #808080;
+  --accent: var(--acc-d, #fab283); --accent-ink: #1a120c; --accent-soft: color-mix(in oklab, var(--accent) 16%, var(--card));
+  --work: #5c9cf5; --work-soft: #17233a; --wait: #f5a742; --wait-soft: #33240f; --ok: #7fd88f; --ok-soft: #142a18; --bad: #e06c75; --bad-soft: #351a1d;
+  --term-bg: #000000; --term-ink: #eeeeee;
+  --shadow: 0 1px 2px rgb(0 0 0 / .4), 0 6px 20px rgb(0 0 0 / .35);
+  color-scheme: dark;
 }
 
+/* Settings: theme picker */
+.theme-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.theme-grid button { border: 1.5px solid var(--line); background: var(--card); border-radius: 12px; padding: 6px 6px 8px; font-size: 12.5px; font-weight: 600; color: var(--ink-2); display: flex; flex-direction: column; gap: 6px; }
+.theme-grid button.on { border-color: var(--accent); color: var(--ink); }
+.theme-prev { height: 34px; border-radius: 8px; display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; border: 1px solid rgb(127 127 127 / .25); }
+.theme-prev i { display: flex; align-items: center; justify-content: center; }
+.theme-prev b { width: 14px; height: 14px; border-radius: 50%; }
+.swatch.auto { display: grid; place-items: center; font-size: 11px; font-weight: 700; color: #fff; text-shadow: 0 1px 2px rgb(0 0 0 / .5); }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; height: 100%; }

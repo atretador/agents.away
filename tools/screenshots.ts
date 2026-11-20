@@ -51,13 +51,20 @@ await shot(p, "permission");
 await p.goto(BASE + "/#/s/s-api"); await p.waitForTimeout(1200);
 await shot(p, "chat");
 
-// 4. Changes tab
+// 4. Subagents sheet (header shows context % and the agents pill), then one subagent's chat
+await p.goto(BASE + "/#/s/s-api"); await p.waitForTimeout(1200);
+await p.click("#agentsbtn"); await p.waitForTimeout(900);
+await shot(p, "agents");
+await p.goto(BASE + "/#/a/s-api/a-redis"); await p.waitForTimeout(1500);
+await shot(p, "subagent");
+
+// 5. Changes tab
 await p.goto(BASE + "/#/s/s-landing"); await p.waitForTimeout(1000);
 await p.click('[data-mode="changes"]'); await p.waitForTimeout(800);
 await p.evaluate(() => document.querySelector("details.ch-file")?.setAttribute("open", ""));
 await shot(p, "changes");
 
-// 5. New session sheet with model & effort
+// 6. New session sheet with model & effort
 await p.goto(BASE + "/"); await p.waitForTimeout(800);
 await p.click("#new"); await p.waitForTimeout(900);
 await p.evaluate(() => { const d = document.querySelector("details.launch") as HTMLDetailsElement | null; if (d) d.open = true; });
@@ -65,7 +72,7 @@ await p.evaluate(() => document.querySelector(".sheet")?.scrollTo(0, 9999));
 await shot(p, "new-session");
 await p.context().close();
 
-// 6. Image review (light theme)
+// 7. Image review (light theme)
 p = await phone("light");
 await p.goto(BASE + "/#/review/r-hero"); await p.waitForTimeout(1500);
 await shot(p, "review");
