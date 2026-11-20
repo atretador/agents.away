@@ -66,6 +66,8 @@ It's a web app (PWA) that you add to your home screen, not an app store download
 - **OpenCode** sessions too (optional), through OpenCode's own server API.
 - **Themes:** Warm Light and Warm Dark, neutral Light and Dark, and Black (near-black, OpenCode-style);
   Auto follows the phone. Accent colours and text size too.
+- **Languages:** English, Spanish and Brazilian Portuguese. It follows the phone's language, or pick one
+  in ⚙ → Appearance. Notifications and the CLI are in English.
 
 ## Requirements
 

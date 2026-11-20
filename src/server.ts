@@ -590,7 +590,7 @@ async function serveStatic(path: string) {
   return null;
 }
 
-const PUBLIC_PATHS = new Set(["/sw.js", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png", "/icons/maskable-512.png", "/icons/badge.png", "/icons/icon.svg", "/app.css", "/fonts.css"]);
+const PUBLIC_PATHS = new Set(["/sw.js", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png", "/icons/maskable-512.png", "/icons/badge.png", "/icons/icon.svg", "/app.css", "/fonts.css", "/page-i18n.js"]);
 
 function requireSession(id: string) {
   const s = sessions.get(id);
@@ -1231,6 +1231,7 @@ Bun.serve({
         headers: { "content-type": "application/x-x509-ca-cert", "content-disposition": 'attachment; filename="agents-away-ca.crt"' },
       });
     }
+    if (url.pathname === "/page-i18n.js") return (await serveStatic("/page-i18n.js"))!;
     const html = (await Bun.file(join(PUBLIC, "onboard.html")).text()).replaceAll("{{HTTPS}}", `https://${url.hostname}:${PORTS.https}/`);
     return new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } });
   },

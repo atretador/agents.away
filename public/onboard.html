@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Agents Away setup</title>
+<title data-i18n="setupTitle">Agents Away setup</title>
 <style>
 :root{--bg:#f6f2ec;--card:#fffdf9;--ink:#221d17;--ink2:#5c5348;--line:#e3dbcf;--accent:#c8582e;color-scheme:light}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#16130f;--card:#221d17;--ink:#f1ebe2;--ink2:#bcb1a2;--line:#342d24;--accent:#e8794c;color-scheme:dark}}
@@ -13,15 +13,15 @@ h1{font-size:24px;margin:0 0 4px}.sub{color:var(--ink2);margin:0 0 20px}
 .btn{display:inline-block;margin-top:10px;background:var(--accent);color:#fff;text-decoration:none;padding:11px 18px;border-radius:12px;font-weight:600}
 ol{padding-left:1.2em;margin:6px 0;color:var(--ink2)} li{margin:3px 0} code{background:rgba(127,127,127,.15);padding:1px 6px;border-radius:6px}
 </style></head><body><main>
-<h1>Set up Agents Away</h1><p class="sub">You only need to do this once per phone.</p>
-<div class="step"><h2><span class="n">1</span>Download the certificate</h2>
-This lets the phone trust the PC's HTTPS (needed for notifications). It's a private certificate made on your PC.
-When the phone shows the certificate's details, check its SHA-256 fingerprint matches the one <code>agents-away pair</code> printed on the PC.
-<br><a class="btn" href="/agents-away-ca.crt">Download certificate</a></div>
-<div class="step"><h2><span class="n">2</span>Install it</h2>
-<b>Android:</b><ol><li>Settings → Security &amp; privacy → More security settings → Encryption &amp; credentials</li><li>Install a certificate → <b>CA certificate</b> → Install anyway → pick <code>agents-away-ca.crt</code></li></ol>
-<b>iPhone:</b><ol><li>Settings → Profile Downloaded → Install</li><li>Settings → General → About → Certificate Trust Settings → turn on “Agents Away local CA”</li></ol></div>
-<div class="step"><h2><span class="n">3</span>Pair</h2>
-On the PC run <code>agents-away pair</code> and scan the second QR code (the pairing link). Then use the browser menu → <b>Add to Home screen</b>, open Agents Away from the home screen and tap <b>Turn on</b> for notifications.
-<br><a class="btn" href="{{HTTPS}}">Open Agents Away</a></div>
-</main></body></html>
+<h1 data-i18n="setupH">Set up Agents Away</h1><p class="sub" data-i18n="setupSub">You only need to do this once per phone.</p>
+<div class="step"><h2><span class="n">1</span><span data-i18n="s1h">Download the certificate</span></h2>
+<span data-i18n="s1">This lets the phone trust the PC's HTTPS (needed for notifications). It's a private certificate made on your PC.
+When the phone shows the certificate's details, check its SHA-256 fingerprint matches the one <code>agents-away pair</code> printed on the PC.</span>
+<br><a class="btn" href="/agents-away-ca.crt" data-i18n="s1b">Download certificate</a></div>
+<div class="step"><h2><span class="n">2</span><span data-i18n="s2h">Install it</span></h2>
+<div data-i18n="s2"><b>Android:</b><ol><li>Settings → Security &amp; privacy → More security settings → Encryption &amp; credentials</li><li>Install a certificate → <b>CA certificate</b> → Install anyway → pick <code>agents-away-ca.crt</code></li></ol>
+<b>iPhone:</b><ol><li>Settings → Profile Downloaded → Install</li><li>Settings → General → About → Certificate Trust Settings → turn on “Agents Away local CA”</li></ol></div></div>
+<div class="step"><h2><span class="n">3</span><span data-i18n="s3h">Pair</span></h2>
+<span data-i18n="s3">On the PC run <code>agents-away pair</code> and scan the second QR code (the pairing link). Then use the browser menu → <b>Add to Home screen</b>, open Agents Away from the home screen and tap <b>Turn on</b> for notifications.</span>
+<br><a class="btn" href="{{HTTPS}}" data-i18n="s3b">Open Agents Away</a></div>
+</main><script src="/page-i18n.js"></script></body></html>

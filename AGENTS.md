@@ -49,6 +49,7 @@ User-facing docs: [README.md](README.md). This file is for coding agents changin
 | `bin/agents-away` | CLI (Bun script): `hook`, `hooks`, `review`, `notify`, `pair`, `status`, `attach` |
 | `bin/agents-away-certs` | Creates the private CA and server certificate |
 | `public/` | PWA: `index.html`, `app.js`, `app.css`, `sw.js` (push + notification actions), onboarding pages, icons |
+| `public/i18n.js`, `public/i18n/*.js` | Phone UI translations (`tr`/`trn`); `public/page-i18n.js` translates `onboard.html` and `unpaired.html` |
 | `shell/` | `claude` wrappers (fish, bash/zsh) that start sessions in `tmux -L agents-away` |
 | `skills/agents-away-review/` | Claude Code skill telling Claude how to use `agents-away review` |
 | `install.sh`, `agents-away.service.in`, `tmux.conf` | Installation |
@@ -123,7 +124,15 @@ User-facing docs: [README.md](README.md). This file is for coding agents changin
     `persistent-pty/:id/connect` (WebSocket, Basic auth), sends the bytes and detaches.
   - *Recent models*: OpenCode's `~/.local/state/opencode/model.json` (`recent`, `variant`), merged with
     the phone's picks (`prefs.oc.recent`) in the new-session sheet.
-- **Client state:** per-phone prefs in `localStorage` (`away.prefs`, `away.seen`, `away.mode`).
+- **Translations:** every user-facing string in `app.js` goes through `tr("English text", {vars})` or
+  `trn(n, "{n} file", "{n} files")` from `public/i18n.js`, always with a string literal (the English text is the
+  key). Add the same key to `public/i18n/es.js` and `public/i18n/pt-BR.js`: `tests/i18n.test.ts` fails on a
+  missing or stale key, or a translation whose `{placeholders}` or HTML tags differ from the English.
+  `bun tools/i18n-keys.ts` lists the keys. Escape user data before passing it as a var into HTML. Don't
+  translate text that is sent to an agent or matched against Claude Code's screen; push notifications,
+  `sw.js` and the CLI are English only. The language (`away.lang`: auto/en/es/pt-BR) is fixed per page
+  load, so module-level constants may call `tr()`; changing it reloads the app.
+- **Client state:** per-phone prefs in `localStorage` (`away.prefs`, `away.seen`, `away.mode`, `away.lang`).
   Bottom sheets go through `sheet()` (it pushes a history entry so Back closes them). Navigate with
   `nav()`, not `location.hash =`, while a sheet may be open.
 

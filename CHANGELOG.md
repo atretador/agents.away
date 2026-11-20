@@ -56,5 +56,7 @@ running on your Linux PC, served over your LAN or VPN.
 - `install.sh` (idempotent, `--uninstall`), `agents-away hooks install`, `agents-away skill install`,
   `claude` wrappers for fish and bash/zsh, systemd user service, `aa` alias.
 - Themes: Auto, Warm Light, Warm Dark, Light, Dark, Black; accent colours and text size.
+- Languages: the phone app in English, Spanish or Brazilian Portuguese, following the phone's language
+  or chosen under ⚙ → Appearance (per phone). Notifications and the CLI stay in English.
 - Test suite (`bun test`), CI on GitHub Actions, demo mode with made-up data (`bun run demo`) and
   automated README screenshots (`bun run screenshots`).
