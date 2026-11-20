@@ -26,6 +26,5 @@ jobs:
         run: bun run check
       - name: Shell scripts (syntax)
         run: bash -n install.sh bin/agents-away-certs shell/claude.sh
-      - name: Shell scripts (shellcheck, advisory until it has passed once)
-        continue-on-error: true
+      - name: Shell scripts (shellcheck)
         run: shellcheck --severity=error install.sh bin/agents-away-certs shell/claude.sh
