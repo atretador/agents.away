@@ -16,12 +16,16 @@ function claude --wraps claude --description 'Claude Code in a Agents Away tmux 
         command claude $argv
         return $status
     end
+    # AWAY_TMUX_SOCKET / AWAY_CONFIG_DIR: same overrides as the server (e.g. a separate test instance).
+    set -l sock agents-away
+    set -q AWAY_TMUX_SOCKET; and set sock $AWAY_TMUX_SOCKET
     set -l conf ~/.config/agents-away/tmux.conf
+    set -q AWAY_CONFIG_DIR; and set conf $AWAY_CONFIG_DIR/tmux.conf
     set -l base (string lower -- (basename $PWD) | string replace -ra '[^a-z0-9_-]+' '-' | string trim -c '-' | string sub -l 20)
     test -n "$base"; or set base home
     set -l name cc-$base
     set -l i 2
-    while tmux -L agents-away -f $conf has-session -t "=$name" 2>/dev/null
+    while tmux -L $sock -f $conf has-session -t "=$name" 2>/dev/null
         set name cc-$base-$i
         set i (math $i + 1)
     end
@@ -31,5 +35,5 @@ function claude --wraps claude --description 'Claude Code in a Agents Away tmux 
             set -a envargs -e "$v="(string join : -- $$v)
         end
     end
-    tmux -L agents-away -f $conf new-session -s $name -c $PWD $envargs -- (command -s claude) $argv
+    tmux -L $sock -f $conf new-session -s $name -c (string replace -a '#' '##' -- $PWD) $envargs -- (command -s claude) $argv
 end

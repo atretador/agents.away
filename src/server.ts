@@ -1,5 +1,5 @@
 import { join, basename, resolve } from "node:path";
-import { existsSync, statSync, openSync, readSync, closeSync } from "node:fs";
+import { existsSync, statSync, openSync, readSync, closeSync, readFileSync } from "node:fs";
 import { timingSafeEqual } from "node:crypto";
 import { hostname } from "node:os";
 import type { ServerWebSocket } from "bun";
@@ -7,13 +7,15 @@ import { config, saveConfig, CERT_DIR, PORTS, TMUX_SOCKET, HOME, DATA_DIR, write
 import { mkdirSync } from "node:fs";
 const UPLOAD_DIR = join(DATA_DIR, "uploads");
 mkdirSync(UPLOAD_DIR, { recursive: true });
+import { canBackground } from "./tmux";
 import { tmux, listPanes, capture, detectPrompt, sendKeys, sendText, chooseOption, newSession, sessionExists, type Prompt } from "./tmux";
 import {
   listClaudeProcs, matchPane, ttyLastInput, transcriptPath, readTail, readRange, fileSize, parseLines,
   sessionTitle, lastAssistantText, recentSessions, knownProjectDirs,
 } from "./claude";
 import { detectAskForm, answerAsk, sameQuestion, type AskAnswer } from "./tmux";
-import { askQuestions, pendingAsk, type AskQuestion } from "./claude";
+import { askQuestions, pendingAsk, isSessionId, type AskQuestion } from "./claude";
+import { onToolHook, toolForScreen, toolLine } from "./approval";
 import { addSubscription, removeSubscription, pushAll, subscriptionCount, type PushPayload } from "./push";
 import * as R from "./reviews";
 import { getPref, setPref, gitChanges, localImage, search } from "./extras";
@@ -31,6 +33,7 @@ const VENDOR: Record<string, string> = {
   "purify.js": join(ROOT, "node_modules/dompurify/dist/purify.es.mjs"),
 };
 
+const VERSION: string = JSON.parse(readFileSync(join(import.meta.dir, "../package.json"), "utf8")).version;
 // Build id: changes whenever a file in public/ changes, so open phones can reload themselves.
 import { readdirSync as _rd } from "node:fs";
 function buildId() {
@@ -63,6 +66,8 @@ type Session = {
   agentName?: string;
   modelName?: string;
   permId?: string;
+  /** Claude Code shows "ctrl+b to run in background" for the running command or subagent. */
+  canBackground?: boolean;
   context?: Context | null; // Claude Code: % of the context window in use
   agents?: { total: number; running: number } | null; // Claude Code: subagents spawned by this session
   ask?: Ask | null; // Claude Code: an AskUserQuestion form on screen
@@ -86,7 +91,7 @@ function ocToSession(o: OC.OcSession): Session {
     question: perm.message || `Allow ${perm.action}?`,
     context: (perm.resources ?? []).slice(0, 6).map(String),
     options: [{ n: 1, label: "Allow once" }, { n: 2, label: "Always allow" }, { n: 3, label: "Reject" }],
-    selected: 1,
+    selected: 1, key: perm.id, tool: perm.tool ?? null,
   } : ocFormPrompt(o.forms[0]);
   const h = hs(o.id);
   return {
@@ -122,11 +127,13 @@ async function refresh() {
     const pane = matchPane(p, panes);
     const tpath = transcriptPath(p.sessionId, p.cwd);
     const h = hs(p.sessionId);
-    let prompt: Prompt | null = null, ask: Ask | null = null;
+    let prompt: Prompt | null = null, ask: Ask | null = null, bg = false;
     if (pane) {
       const screen = await capture(pane.socket, pane.paneId);
+      bg = !!screen && canBackground(screen);
       prompt = screen ? detectPrompt(screen) : null;
       if (screen) ({ ask, prompt } = askState(p.sessionId, tpath, screen, prompt));
+      if (prompt && screen) prompt = { ...prompt, tool: toolForScreen(p.sessionId, screen) };
     }
     // A permission notification that is no longer on screen has been answered (at the PC, usually).
     if (h.attention && pane && !prompt && Date.now() - h.attention.at > 4000) h.attention = null;
@@ -140,6 +147,7 @@ async function refresh() {
       attention: h.attention, prompt, lastInputAt: ttyLastInput(p.tty),
       activityAt: tpath ? statSync(tpath).mtimeMs : 0, startedAt: p.startedAt, doneAt: h.doneAt,
       context: contextUsage(tpath), agents: agentCountsFor(p.sessionId, tpath, true), ask,
+      canBackground: bg && !prompt && !ask,
     });
   }
   // Agents Away-socket panes Claude hasn't registered yet (e.g. sitting at the folder-trust prompt).
@@ -233,7 +241,8 @@ async function onHook(ev: any) {
   const id: string = ev.session_id;
   const name: string = ev.hook_event_name;
   if (!id || !name) return;
-  if (name !== "PostToolUse") console.log("hook", name, id.slice(0, 8), ev.message ?? "");
+  if (name !== "PostToolUse" && name !== "PreToolUse") console.log("hook", name, id.slice(0, 8), ev.message ?? "");
+  onToolHook(id, ev);
   const h = hs(id);
   if (name === "UserPromptSubmit") { h.promptAt = Date.now(); h.attention = null; }
   else if (name === "PostToolUse") { h.attention = null; }
@@ -262,9 +271,9 @@ async function onHook(ev: any) {
     }
     const actions = cur?.prompt && cur.tmux ? [{ action: "approve", title: "Allow" }, { action: "open", title: "Open" }] : [];
     await pushAll({
-      kind: idle ? "info" : "attention", sessionId: id, tag: "s-" + id,
+      kind: idle ? "info" : "attention", sessionId: id, tag: "s-" + id, promptKey: cur?.prompt?.key,
       title: cur ? displayName(cur) : "Claude",
-      body: cur?.prompt && !idle ? `${msg}\n${cur.prompt.context.slice(-2).join(" ")}`.trim() : msg,
+      body: cur?.prompt?.tool && !idle ? toolLine(cur.prompt.tool) : cur?.prompt && !idle ? `${msg}\n${cur.prompt.context.slice(-2).join(" ")}`.trim() : msg,
       url: `/#/s/${id}`, actions,
     });
   } else if (name === "Stop") {
@@ -335,8 +344,9 @@ OC.subscribe(async (type, data) => {
     if (!top() || !config.settings.notifyOnAttention) return;
     const s = sessions.get(id);
     if (!shouldPush(s)) return;
-    const what = data.message || `${data.action}${data.resources?.length ? ": " + data.resources.slice(0, 2).join(", ") : ""}`;
-    await pushAll({ kind: "attention", sessionId: id, tag: "s-" + id, title: s ? displayName(s) : "OpenCode", body: `Permission: ${what}`, url: `/#/s/${id}`, actions: [{ action: "approve", title: "Allow" }, { action: "open", title: "Open" }] });
+    const pt = sessions.get(id)?.prompt?.tool;
+    const what = pt ? toolLine(pt) : data.message || `${data.action}${data.resources?.length ? ": " + data.resources.slice(0, 2).join(", ") : ""}`;
+    await pushAll({ kind: "attention", sessionId: id, tag: "s-" + id, promptKey: data.id ?? s?.permId, title: s ? displayName(s) : "OpenCode", body: `Permission: ${what}`, url: `/#/s/${id}`, actions: [{ action: "approve", title: "Allow" }, { action: "open", title: "Open" }] });
   } else if (type === "session.execution.succeeded" || type === "session.execution.failed") {
     hs(id).doneAt = Date.now();
     await refreshOpenCode(); await refreshNow();
@@ -371,7 +381,7 @@ async function deliverReview(r: R.Review) {
   if (r.deliverToSession && r.session?.id && isOc(r.session.id)) {
     // OpenCode: post the answer as a message (queued if it's mid-step).
     try {
-      await OC.prompt(r.session.id, `[Phone review of "${r.title}" (id ${r.id})] ${R.decisionText(r).replace("\n", " — ")}`, sessions.get(r.session.id)?.status === "working");
+      await OC.prompt(r.session.id, `[Phone review of "${oneLine(r.title)}" (id ${r.id})] ${R.decisionText(r).replace("\n", " — ")}`, sessions.get(r.session.id)?.status === "working");
       r.delivered = true; R.save(r);
       return "session";
     } catch (e) { console.error("deliver review (opencode)", e); return "stored"; }
@@ -380,7 +390,7 @@ async function deliverReview(r: R.Review) {
   const s = r.session.id ? sessions.get(r.session.id) : undefined;
   const socket = s?.tmux?.socket ?? r.session.socket;
   const pane = s?.tmux?.pane ?? r.session.pane;
-  const msg = `[Phone review of "${r.title}" (id ${r.id})] ${R.decisionText(r).replace("\n", " — ")}`;
+  const msg = `[Phone review of "${oneLine(r.title)}" (id ${r.id})] ${R.decisionText(r).replace("\n", " — ")}`;
   try {
     await sendText(socket, pane, msg, true);
     r.delivered = true; R.save(r);
@@ -611,6 +621,7 @@ async function api(req: Request, url: URL, deviceKey: string): Promise<Response>
       settings: config.settings,
       push: { publicKey: config.vapid.publicKey, subscribers: subscriptionCount() },
       host: hostname(),
+      version: VERSION,
     });
   }
   if (p === "/api/recent") {
@@ -644,6 +655,7 @@ async function api(req: Request, url: URL, deviceKey: string): Promise<Response>
         else return err("Only Esc (interrupt) works for OpenCode sessions", 400);
       } else {
         if (!s.permId) return err("No permission request is pending any more", 409);
+        if (b.key !== s.permId) return err("That request was already answered; a different one is showing now. Open the session to see it.", 409);
         const n = mm[2] === "approve" ? 1 : Number(b.n);
         await OC.replyPermission(s.id, s.permId, n === 1 ? "once" : n === 2 ? "always" : "reject");
       }
@@ -667,8 +679,11 @@ async function api(req: Request, url: URL, deviceKey: string): Promise<Response>
       await sendKeys(s.tmux.socket, s.tmux.pane, Array.isArray(b.keys) ? b.keys.map(String) : []);
     } else {
       try {
-        if (mm[2] === "approve") await chooseOption(s.tmux.socket, s.tmux.pane, (p) => p.options.find((o) => /^yes\b/i.test(o.label))?.n ?? 1);
-        else await chooseOption(s.tmux.socket, s.tmux.pane, () => Number(b.n));
+        // `key` (the prompt's fingerprint, from the app or the notification) is required: never answer a
+        // prompt the phone hasn't seen.
+        const key = String(b.key ?? "");
+        if (mm[2] === "approve") await chooseOption(s.tmux.socket, s.tmux.pane, (p) => p.options.find((o) => /^yes\b/i.test(o.label))?.n ?? 1, key);
+        else await chooseOption(s.tmux.socket, s.tmux.pane, () => Number(b.n), key);
       }
       catch (e: any) { return err(e.message, 409); }
       hs(s.id).attention = null;
@@ -885,8 +900,8 @@ async function api(req: Request, url: URL, deviceKey: string): Promise<Response>
     if (b.model && (MODELS.includes(b.model) || /^claude-[\w.-]+$/.test(b.model))) args.push("--model", String(b.model));
     if (b.effort && EFFORTS.includes(b.effort)) args.push("--effort", String(b.effort));
     if (b.mode && MODES.includes(b.mode)) args.push("--permission-mode", String(b.mode));
-    if (b.resume) args.push("--resume", String(b.resume));
-    if (b.prompt) args.push(String(b.prompt));
+    if (b.resume) { if (!isSessionId(b.resume)) return err("bad session id"); args.push("--resume", b.resume); }
+    if (b.prompt) args.push("--", String(b.prompt)); // a prompt starting with "-" is text, not an option
     const name = await uniqueName("cc-" + basename(cwd));
     await newSession(cwd, name, args);
     return json({ ok: true, tmux: name });
@@ -976,12 +991,39 @@ if (!existsSync(join(CERT_DIR, "server.crt"))) {
   process.exit(1);
 }
 
+// Every app response: a strict CSP (no inline or third-party scripts, no external images or
+// connections, no framing), no MIME sniffing, no referrer. Responses that set their own CSP (uploads and
+// review files: `sandbox`) keep it.
+function securityHeaders(req: Request, res: Response): Response {
+  try {
+    const h = res.headers;
+    if (!h.has("content-security-policy")) {
+      const host = req.headers.get("host") ?? "";
+      h.set("content-security-policy", `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' wss://${host}; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`);
+    }
+    h.set("x-content-type-options", "nosniff");
+    h.set("referrer-policy", "no-referrer");
+    h.set("x-frame-options", "DENY");
+  } catch {} // immutable headers (e.g. a proxied response): leave as is
+  return res;
+}
+/** The WebSocket must come from the app's own page: a page on another origin (another service on the same
+ *  host gets the same cookie) can't connect with the phone's sign-in. */
+function sameOrigin(req: Request): boolean {
+  const o = req.headers.get("origin");
+  return !o || o === `https://${req.headers.get("host")}`;
+}
+const SAFE_ID = /^[\w-]{1,128}$/;
+
 Bun.serve<WsData>({
   port: PORTS.https,
   idleTimeout: 255,
   hostname: "0.0.0.0",
   tls,
   async fetch(req, server) {
+    const res = await handle();
+    return res ? securityHeaders(req, res) : res;
+    async function handle(): Promise<Response> {
     const url = new URL(req.url);
     const p = url.pathname;
     try {
@@ -1009,6 +1051,7 @@ Bun.serve<WsData>({
         return (await serveStatic("/unpaired.html"))!;
       }
       if (p === "/ws") {
+        if (!sameOrigin(req)) return err("bad origin", 403);
         // Connecting renews the sign-in cookie.
         const h = new Headers();
         const c = Auth.renewCookie(req);
@@ -1034,6 +1077,7 @@ Bun.serve<WsData>({
       console.error(e);
       return err(e?.message ?? "error", 500);
     }
+    }
   },
   websocket: {
     open(ws) { clients.add(ws); ws.send(JSON.stringify({ type: "build", build: BUILD })); ws.send(JSON.stringify({ type: "sessions", sessions: publicSessions() })); },
@@ -1041,6 +1085,7 @@ Bun.serve<WsData>({
     message(ws, raw) {
       let m: any;
       try { m = JSON.parse(String(raw)); } catch { return; }
+      if (m.id !== undefined && m.id !== null && m.id !== "" && !SAFE_ID.test(String(m.id))) return;
       if (m.type === "watch") {
         if (!m.id) { ws.data.watch = null; return; }
         startWatch(ws, String(m.id), !!m.chat, !!m.term, Number(m.from) || 0);
@@ -1060,6 +1105,9 @@ Bun.serve<WsData>({
     },
   },
 });
+
+/** Agent-written text pasted into a terminal: no newlines or control characters. */
+const oneLine = (t: string) => String(t ?? "").replace(/[\x00-\x1f\x7f-\x9f]+/g, " ").trim();
 
 // ───────────────────────── local API (hooks + CLI) ─────────────────────────
 
@@ -1096,7 +1144,9 @@ Bun.serve({
           title: String(fd.get("title") ?? files[0].name).slice(0, 200),
           message: String(fd.get("message") ?? "").slice(0, 5000),
           files,
-          session: s ? { id: s.id, name: displayName(s), cwd: s.cwd, socket: s.tmux?.socket, pane: s.tmux?.pane } : pane ? { pane, socket: String(fd.get("socket") ?? "default") } : null,
+          // Only ever a known session's own pane: the answer is pasted there later, so a caller-supplied
+          // pane (e.g. a plain shell in your own tmux) is never used.
+          session: s ? { id: s.id, name: displayName(s), cwd: s.cwd, socket: s.tmux?.socket, pane: s.tmux?.pane } : null,
         });
         if (fd.get("async") === "1") { r.deliverToSession = true; R.save(r); }
         broadcast({ type: "reviews" });
@@ -1175,4 +1225,4 @@ await refreshNow();
 setTimeout(() => prewarm(R.listReviews().slice(0, 12).flatMap((r) => r.files.filter((f) => f.type.startsWith("image/")).map((f) => R.filePath(r, f.name)!))), 3000);
 // Tell the CLI (and so the Claude Code hooks) which ports this server is really on.
 writeJson(join(CFG_DIR, "ports.json"), PORTS);
-console.log(`Agents Away up: https://0.0.0.0:${PORTS.https}  local api 127.0.0.1:${PORTS.local}  onboarding http://0.0.0.0:${PORTS.onboard}`);
+console.log(`Agents Away ${VERSION} up: https://0.0.0.0:${PORTS.https}  local api 127.0.0.1:${PORTS.local}  onboarding http://0.0.0.0:${PORTS.onboard}`);

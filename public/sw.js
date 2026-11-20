@@ -53,7 +53,7 @@ self.addEventListener("notificationclick", (event) => {
   event.waitUntil((async () => {
     try {
       if (event.action === "approve" && d.sessionId) {
-        await post(`/api/session/${d.sessionId}/approve`);
+        await post(`/api/session/${d.sessionId}/approve`, { key: d.promptKey ?? "" });
         await self.registration.showNotification("Allowed", { body: d.title, tag: d.tag, icon: "/icons/icon-192.png", badge: "/icons/badge.png", silent: true });
         setTimeout(async () => (await self.registration.getNotifications({ tag: d.tag })).forEach((x) => x.close()), 2500);
         return;

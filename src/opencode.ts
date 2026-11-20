@@ -1,5 +1,6 @@
 // OpenCode support: talks to OpenCode's background server (the same one its TUI uses).
 // No tmux or screen-scraping: sessions, messages, prompts, permissions and events all come from its HTTP API.
+import { describeOcTool, type ToolView } from "./approval";
 import { join } from "node:path";
 import { readFileSync } from "node:fs";
 import { HOME } from "./config";
@@ -85,6 +86,26 @@ export type OcSession = {
   agents: { total: number; running: number } | null;
 };
 
+// What a permission request is about: its tool call (source = {type: "tool", messageID, id}) with the
+// exact input, as a structured view (approval.ts). Cached per request; requests never change.
+const permTools = new Map<string, ToolView | null>();
+export async function permissionTool(sessionId: string, cwd: string, perm: any): Promise<ToolView | null> {
+  if (permTools.has(perm.id)) return permTools.get(perm.id)!;
+  let view: ToolView | null = null;
+  const src = perm.source;
+  if (src?.type === "tool" && src.messageID) {
+    try {
+      const r = await oc("GET", `/api/session/${sessionId}/message/${src.messageID}`);
+      const msg = r?.data ?? r;
+      const part = (msg?.content ?? msg?.parts ?? []).find((p: any) => p.id === src.id && p.type === "tool");
+      if (part) view = describeOcTool(part.name, part.state?.input, cwd);
+    } catch {}
+  }
+  if (permTools.size > 200) permTools.clear();
+  permTools.set(perm.id, view);
+  return view;
+}
+
 export async function listSessions(maxIdleAgeMs = 8 * 3600_000, max = 10): Promise<OcSession[]> {
   if (!(await discover())) return [];
   const [list, active] = await Promise.all([
@@ -107,6 +128,7 @@ export async function listSessions(maxIdleAgeMs = 8 * 3600_000, max = 10): Promi
   }
   await Promise.all(out.map(async (s) => {
     try { s.permissions = (await oc("GET", `/api/session/${s.id}/permission`))?.data ?? []; } catch {}
+    await Promise.all(s.permissions.map(async (p: any) => { p.tool = await permissionTool(s.id, s.cwd, p); }));
     [s.forms, s.context, s.agents] = await Promise.all([forms(s.id), contextUsage(s.id, s.updated), agentCounts(s.id, running)]);
   }));
   return out;
@@ -132,6 +154,10 @@ export function toItems(messages: any[]): Item[] {
       for (const p of m.content ?? []) {
         if (p.type === "text") {
           if (done && p.text?.trim()) items.push({ k: "text", text: p.text, ts });
+        } else if (p.type === "reasoning") {
+          // Thinking models (DeepSeek, Gemini, GPT…): shown collapsed. Once it's finished, so it isn't re-sent
+          // with every streamed token; some providers return it empty (encrypted).
+          if ((done || p.time?.completed) && p.text?.trim()) items.push({ k: "thinking", text: clip(p.text.trim(), 4000), ts });
         } else if (p.type === "tool") {
           const st = p.state ?? {};
           if (st.status === "pending") continue; // input still streaming

@@ -1,6 +1,6 @@
 // Session prefs (rename / pin / mute), git changes, transcript search, local image serving.
 import { join, extname } from "node:path";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, statSync, realpathSync, openSync, readSync, closeSync } from "node:fs";
 import { DATA_DIR, CLAUDE_DIR, HOME, readJson, writeJson } from "./config";
 import { sessionTitle } from "./claude";
 
@@ -34,17 +34,40 @@ async function run(cmd: string[], cwd: string, max = 2_000_000) {
   return { ok: code === 0, out: out.length > max ? out.slice(0, max) : out, truncated: out.length > max };
 }
 
+// The repo's own .git/config can be written by an agent or come from a downloaded archive, and git runs
+// commands from it (core.fsmonitor, diff drivers, textconv, clean/smudge filters). Override all of them
+// on the command line; refuse repos whose local config defines a long-running filter process.
+const SAFE_GIT = ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "diff.external=", "-c", "core.pager=cat", "-c", "protocol.allow=never"];
+async function gitGuard(cwd: string): Promise<{ args: string[]; refuse?: string }> {
+  // `git config` only reads config; --show-scope tells repo-local settings apart from the user's own.
+  const r = await run(["git", ...SAFE_GIT, "config", "--list", "--includes", "--show-scope", "--null"], cwd, 200_000);
+  const args = [...SAFE_GIT];
+  // --null output: scope NUL key LF value NUL, repeated.
+  const parts = r.out.split("\0");
+  for (let i = 0; i + 1 < parts.length; i += 2) {
+    if (parts[i] !== "local" && parts[i] !== "worktree") continue;
+    const key = parts[i + 1].split("\n")[0].toLowerCase();
+    const f = key.match(/^filter\.(.+)\.(clean|smudge|process|required)$/);
+    if (f?.[2] === "process") return { args, refuse: `This repo's git config defines a filter process (filter.${f[1]}), so Changes won't run git here.` };
+    if (f) args.push("-c", `filter.${f[1]}.clean=cat`, "-c", `filter.${f[1]}.smudge=cat`, "-c", `filter.${f[1]}.required=false`);
+  }
+  return { args };
+}
+
 export async function gitChanges(cwd: string) {
   if (!existsSync(cwd)) return { repo: false, error: "Folder not found" };
-  const top = await run(["git", "rev-parse", "--show-toplevel"], cwd);
+  const guard = await gitGuard(cwd);
+  if (guard.refuse) return { repo: false, error: guard.refuse };
+  const git = (...a: string[]) => ["git", ...guard.args, ...a];
+  const top = await run(git("rev-parse", "--show-toplevel"), cwd);
   if (!top.ok) return { repo: false };
   const root = top.out.trim();
-  const branch = (await run(["git", "rev-parse", "--abbrev-ref", "HEAD"], root)).out.trim();
-  const hasHead = (await run(["git", "rev-parse", "--verify", "-q", "HEAD"], root)).ok;
+  const branch = (await run(git("rev-parse", "--abbrev-ref", "HEAD"), root)).out.trim();
+  const hasHead = (await run(git("rev-parse", "--verify", "-q", "HEAD"), root)).ok;
   const base = hasHead ? ["HEAD"] : ["--cached"];
-  const numstat = await run(["git", "diff", "--numstat", "-M", ...base], root);
-  const diff = await run(["git", "diff", "-M", "--no-color", "-U3", ...base], root, 600_000);
-  const untracked = (await run(["git", "ls-files", "--others", "--exclude-standard"], root)).out.split("\n").filter(Boolean);
+  const numstat = await run(git("diff", "--no-ext-diff", "--no-textconv", "--numstat", "-M", ...base), root);
+  const diff = await run(git("diff", "--no-ext-diff", "--no-textconv", "-M", "--no-color", "-U3", ...base), root, 600_000);
+  const untracked = (await run(git("ls-files", "--others", "--exclude-standard"), root)).out.split("\n").filter(Boolean);
   const files = numstat.out.split("\n").filter(Boolean).map((l) => {
     const [a, d, ...rest] = l.split("\t");
     return { path: rest.join("\t"), added: a === "-" ? null : +a, removed: d === "-" ? null : +d };
@@ -56,13 +79,13 @@ export async function gitChanges(cwd: string) {
     try {
       const st = statSync(full);
       if (st.size > 60_000) { files.push({ path: f, added: null, removed: null }); continue; }
-      const r = await run(["git", "diff", "--no-index", "--no-color", "--", "/dev/null", f], root, 80_000);
+      const r = await run(git("diff", "--no-ext-diff", "--no-textconv", "--no-index", "--no-color", "--", "/dev/null", f), root, 80_000);
       extra += r.out;
       const lines = r.out.split("\n").filter((l) => l.startsWith("+") && !l.startsWith("+++")).length;
       files.push({ path: f, added: lines, removed: 0 });
     } catch {}
   }
-  const log = (await run(["git", "log", "--oneline", "-n", "8", "--no-color"], root)).out.trim().split("\n").filter(Boolean);
+  const log = (await run(git("log", "--oneline", "-n", "8", "--no-color", "--no-show-signature"), root)).out.trim().split("\n").filter(Boolean);
   return {
     repo: true, root: root.replace(HOME, "~"), branch, files, untracked: untracked.length, log,
     diff: diff.out + extra, truncated: diff.truncated,
@@ -73,9 +96,23 @@ export async function gitChanges(cwd: string) {
 const IMG = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif", ".bmp"]);
 export function localImage(path: string): string | null {
   if (!path.startsWith("/")) return null;
-  if (!IMG.has(extname(path).toLowerCase())) return null;
-  try { if (!statSync(path).isFile()) return null; } catch { return null; }
-  return path;
+  // Check the real file, so a symlink named x.png can't expose ~/.ssh/id_ed25519.
+  let real: string;
+  try { real = realpathSync(path); if (!statSync(real).isFile()) return null; } catch { return null; }
+  if (!IMG.has(extname(path).toLowerCase()) || !IMG.has(extname(real).toLowerCase())) return null;
+  // And it must really be an image (by its first bytes), not just named like one.
+  try {
+    const fd = openSync(real, "r"), b = Buffer.alloc(16);
+    readSync(fd, b, 0, 16, 0); closeSync(fd);
+    const isImg = b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) // PNG
+      || (b[0] === 0xff && b[1] === 0xd8) // JPEG
+      || b.subarray(0, 4).toString("latin1") === "GIF8"
+      || (b.subarray(0, 4).toString("latin1") === "RIFF" && b.subarray(8, 12).toString("latin1") === "WEBP")
+      || b.subarray(4, 8).toString("latin1") === "ftyp" // AVIF/HEIC
+      || b.subarray(0, 2).toString("latin1") === "BM";
+    if (!isImg) return null;
+  } catch { return null; }
+  return real;
 }
 
 // ───────── search ─────────
@@ -129,8 +166,8 @@ export async function search(q: string, limitFiles = 25) {
       const sn = snippet(t.text, q);
       if (sn) hits.push({ role: t.role, ts: o.timestamp, ...sn });
     }
-    if (!hits.length) return null;
     const sessionId = f.split("/").pop()!.replace(/\.jsonl$/, "");
+    if (!hits.length || !/^[\w-]{1,128}$/.test(sessionId)) return null;
     return { sessionId, cwd, home: cwd.replace(HOME, "~"), title: sessionTitle(f), mtime: m, count: hits.length, hits: hits.slice(-4).reverse() };
   });
   return results.filter(Boolean);

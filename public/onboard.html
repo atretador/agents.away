@@ -16,6 +16,7 @@ ol{padding-left:1.2em;margin:6px 0;color:var(--ink2)} li{margin:3px 0} code{back
 <h1>Set up Agents Away</h1><p class="sub">You only need to do this once per phone.</p>
 <div class="step"><h2><span class="n">1</span>Download the certificate</h2>
 This lets the phone trust the PC's HTTPS (needed for notifications). It's a private certificate made on your PC.
+When the phone shows the certificate's details, check its SHA-256 fingerprint matches the one <code>agents-away pair</code> printed on the PC.
 <br><a class="btn" href="/agents-away-ca.crt">Download certificate</a></div>
 <div class="step"><h2><span class="n">2</span>Install it</h2>
 <b>Android:</b><ol><li>Settings → Security &amp; privacy → More security settings → Encryption &amp; credentials</li><li>Install a certificate → <b>CA certificate</b> → Install anyway → pick <code>agents-away-ca.crt</code></li></ol>

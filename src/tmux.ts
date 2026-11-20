@@ -57,7 +57,7 @@ export async function capture(socket: string, pane: string, opts: { ansi?: boole
 
 export const KEY_WHITELIST = new Set([
   "Escape", "Enter", "Up", "Down", "Left", "Right", "Tab", "BTab", "C-c", "C-o", "C-r", "C-t", "C-l", "Space", "BSpace",
-  "PageUp", "PageDown", "C-u", "C-x", "C-s", "1", "2", "3", "4", "5", "6", "7", "8", "9", "y", "n",
+  "PageUp", "PageDown", "C-u", "C-x", "C-s", "C-b", "1", "2", "3", "4", "5", "6", "7", "8", "9", "y", "n",
 ]);
 
 export async function sendKeys(socket: string, pane: string, keys: string[]) {
@@ -100,13 +100,25 @@ export type Prompt = {
   context: string[];
   options: { n: number; label: string }[];
   selected: number;
+  /** Fingerprint of what is being asked (not of the cursor): answers carry it, so a stale notification
+   *  or button can never answer a different prompt that has appeared since. */
+  key?: string;
+  /** What exactly is being approved (from the PreToolUse hook), when known: see approval.ts. */
+  tool?: import("./approval").ToolView | null;
 };
+export function promptKey(p: Pick<Prompt, "question" | "context" | "options">): string {
+  return new Bun.CryptoHasher("sha256").update(JSON.stringify([p.question, p.context, p.options.map((o) => o.label)])).digest("hex").slice(0, 16);
+}
 
 const BOX = /[│╭╮╰╯─┃┏┓┗┛━╌┆]/g;
 
 /** Detect a numbered selection menu (permission prompt, trust prompt…) at the bottom of the screen.
  *  AskUserQuestion forms are not menus: they're left to detectAskForm (except their review step). */
 export function detectPrompt(screen: string): Prompt | null {
+  const p = detectPromptRaw(screen);
+  return p && { ...p, key: promptKey(p) };
+}
+function detectPromptRaw(screen: string): Prompt | null {
   const form = detectAskForm(screen);
   if (form && !form.review) return null;
   const lines = screen.replace(/\s+$/, "").split("\n").map((l) => l.replace(BOX, " ").replace(/\s+$/, ""));
@@ -180,10 +192,11 @@ function detectPlainMenu(tail: string[]): Prompt | null {
   return { question, context: above.filter((_, j) => j !== qi).slice(-6), options, selected: sel - a + 1 };
 }
 
-export async function chooseOption(socket: string, pane: string, pick: (p: Prompt) => number) {
+export async function chooseOption(socket: string, pane: string, pick: (p: Prompt) => number, expectKey?: string) {
   const screen = await capture(socket, pane);
   const p = screen && detectPrompt(screen);
   if (!p) throw new Error("No menu is showing in that session any more");
+  if (expectKey !== undefined && p.key !== expectKey) throw new Error("That prompt was already answered; a different one is showing now. Open the session to see it.");
   const n = pick(p);
   if (!p.options.some((o) => o.n === n)) throw new Error("Option not available");
   const delta = n - p.selected;
@@ -379,11 +392,15 @@ function loginShell(): string {
   return shellCache;
 }
 
+/** A string tmux won't expand as a format (#(cmd), #{var}): "#" → "##". */
+export const tmuxLiteral = (s: string) => s.replaceAll("#", "##");
+
 export async function newSession(cwd: string, name: string, claudeArgs: string[]) {
   const sh = loginShell();
   const quote = /fish$/.test(sh) ? fishQuote : posixQuote;
   const cmd = ["exec", "claude", ...claudeArgs.map(quote)].join(" ");
-  const args = ["new-session", "-d", "-s", name, "-c", cwd, "-x", "80", "-y", "50", "--", sh, "-l", "-c", cmd];
+  // tmux expands #(...) formats in -c: escape "#" so a folder name can never run a command.
+  const args = ["new-session", "-d", "-s", name, "-c", tmuxLiteral(cwd), "-x", "80", "-y", "50", "--", sh, "-l", "-c", cmd];
   const running = (await tmux(TMUX_SOCKET, ["list-sessions"])).ok;
   if (!running) {
     // Starting the tmux server ourselves: give it its own systemd scope, so the Claude sessions
@@ -402,3 +419,8 @@ export async function sessionExists(name: string) {
   const r = await tmux(TMUX_SOCKET, ["has-session", "-t", "=" + name]);
   return r.ok;
 }
+
+/** Claude Code offers to move the running shell command (or subagent) to the background:
+ *  "(ctrl+b to run in background)", in tmux "(ctrl+b ctrl+b (twice) to run in background)". One C-b sent
+ *  with send-keys reaches Claude Code directly (no tmux prefix in the way), so that's all it takes. */
+export const canBackground = (screen: string) => /\(ctrl\+b[^)]*to run in background\)/i.test(screen);

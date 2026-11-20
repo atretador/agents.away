@@ -40,13 +40,22 @@ const I = {
   stop: '<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/>',
   archive: '<rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/>',
   trash: '<path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/>',
+  sparkle: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 17l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z"/>',
 };
 const icon = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${I[n]}</svg>`;
 
 // ───────── helpers ─────────
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-const md = (s) => DOMPurify.sanitize(marked.parse(s ?? ""));
+// Markdown from transcripts is model output: no styles, forms or external images (a prompt-injected reply
+// could restyle the app, fake a form or leak data through an image URL).
+const MD_OPTS = { FORBID_TAGS: ["style", "form", "input", "button", "textarea", "select", "option", "iframe", "object", "embed", "svg", "math"], FORBID_ATTR: ["style", "action", "formaction"] };
+const md = (s) => {
+  const frag = DOMPurify.sanitize(marked.parse(s ?? ""), { ...MD_OPTS, RETURN_DOM_FRAGMENT: true });
+  frag.querySelectorAll("img").forEach((img) => { if (!/^(\/|data:image\/|blob:)/.test(img.getAttribute("src") ?? "")) img.replaceWith(Object.assign(document.createElement("span"), { textContent: img.alt ? `[image: ${img.alt}]` : "[image]" })); });
+  frag.querySelectorAll("a[href]").forEach((a) => { a.target = "_blank"; a.rel = "noopener noreferrer"; });
+  const box = document.createElement("div"); box.append(frag); return box.innerHTML;
+};
 function ago(t) {
   if (!t) return "";
   const s = (Date.now() - (typeof t === "string" ? Date.parse(t) : t)) / 1000;
@@ -90,14 +99,15 @@ const ACCENTS = {
   clay: ["#c8582e", "#e8794c"], ocean: ["#2f6fd0", "#6d9ff0"], moss: ["#2f8550", "#62c283"],
   violet: ["#7448d0", "#a88bf2"], rose: ["#c13a6b", "#ee7aa3"], slate: ["#4b5563", "#a5b0c0"],
 };
-// Themes: [key, label, preview bg, preview card, default accent]. "auto" follows the phone (Claude Light/Dark).
+// Themes: [key, label, preview bg, preview card, default accent]. "auto" follows the phone (Warm Light/Dark).
+// Labels never use Anthropic's or OpenCode's names (trademarks); the keys stay for saved preferences.
 const THEMES = [
   ["auto", "Auto", "linear-gradient(135deg,#f6f2ec 50%,#16130f 50%)", "", "#e8794c"],
-  ["claude-light", "Claude Light", "#f6f2ec", "#fffdf9", "#c8582e"],
-  ["claude-dark", "Claude Dark", "#16130f", "#221d17", "#e8794c"],
+  ["claude-light", "Warm Light", "#f6f2ec", "#fffdf9", "#c8582e"],
+  ["claude-dark", "Warm Dark", "#16130f", "#221d17", "#e8794c"],
   ["light", "Light", "#f4f4f5", "#ffffff", "#2563eb"],
   ["dark", "Dark", "#121214", "#1e1e22", "#6ea8fe"],
-  ["opencode", "OpenCode", "#0a0a0a", "#141414", "#fab283"],
+  ["opencode", "Black", "#0a0a0a", "#141414", "#fab283"],
 ];
 const PREF_DEFAULTS = { theme: "auto", accent: "auto", scale: 1, termSize: 12, termFit: false, v: 2 };
 const prefs = (() => {
@@ -221,7 +231,7 @@ function onMsg(m) {
 async function loadState() {
   try {
     const j = await api("/api/state");
-    Object.assign(S, { sessions: j.sessions, reviews: j.reviews, settings: j.settings, push: j.push, host: j.host });
+    Object.assign(S, { sessions: j.sessions, reviews: j.reviews, settings: j.settings, push: j.push, host: j.host, version: j.version });
     if (S.view?.kind === "home") renderHome();
     if (S.view?.kind === "review") renderReview(S.view.id);
     if (S.view?.kind === "session") renderAlert(S.view.id);
@@ -295,10 +305,10 @@ function orderedSessions() {
 const STATUS_LABEL = { working: "Working", waiting: "Needs you", idle: "Your turn" };
 function sessionCard(s) {
   const when = s.status === "working" ? "" : ago(s.activityAt);
-  const ask = s.status === "waiting" ? (s.ask ? askLine(s.ask) : s.prompt?.question || s.attention?.message) : null;
+  const ask = s.status === "waiting" ? (s.ask ? askLine(s.ask) : s.prompt?.tool ? toolLine(s.prompt.tool) : s.prompt?.question || s.attention?.message) : null;
   const swipe = s.canReply;
   const oc = s.kind === "opencode";
-  return `${swipe ? `<div class="swipe-wrap" data-sid="${esc(s.id)}"><div class="swipe-act"><span>${icon(oc ? "archive" : "power")}<b>${oc ? "Archive" : "End"}</b></span></div>` : ""}<a class="card s-card ${s.status}" href="#/s/${s.id}">
+  return `${swipe ? `<div class="swipe-wrap" data-sid="${esc(s.id)}"><div class="swipe-act"><span>${icon(oc ? "archive" : "power")}<b>${oc ? "Archive" : "End"}</b></span></div>` : ""}<a class="card s-card ${s.status}" href="#/s/${encodeURIComponent(s.id)}">
     <span class="dot ${s.status}"></span>
     <div class="t">${s.pinned ? `<span class="pin-ic">${icon("pin")}</span>` : ""}${esc(sname(s))}${s.muted ? `<span class="mute-ic">${icon("mute")}</span>` : ""}</div>
     <div class="when">${s.status === "working" ? `<span class="chip work">Working</span>` : esc(when)}</div>
@@ -376,7 +386,7 @@ function reviewCard(r) {
     : r.status === "dismissed" ? '<span class="chip">Dismissed</span>'
     : r.decision === "approved" ? '<span class="chip ok">Approved</span>'
     : r.decision === "rejected" ? '<span class="chip bad">Rejected</span>' : '<span class="chip wait">Changes</span>';
-  return `<a class="card r-card" href="#/review/${r.id}">
+  return `<a class="card r-card" href="#/review/${encodeURIComponent(r.id)}">
     <div class="thumb" ${img ? `style="background-image:url('${sized(img.url, 360)}')"` : ""}>${img ? "" : icon("image")}</div>
     <div><div class="t">${esc(r.title)}</div>${r.message ? `<div class="m">${esc(r.message)}</div>` : ""}
     <div class="meta">${chip}<span>${r.media.length > 1 ? r.media.length + " files · " : ""}${ago(r.createdAt)}</span></div></div>
@@ -692,7 +702,7 @@ const primaryOpt = (p) => p.options.find((o) => /^yes\b/i.test(o.label))?.n ?? 1
 function renderDock(s) {
   const dock = $("#dock");
   const ocTerm = s.kind === "opencode" && S.mode === "term"; // OpenCode Terminal tab: the composer types into its terminal
-  const key = JSON.stringify([s.id, s.canReply, s.prompt, s.ask, s.attention?.message, S.keysOpen, ocTerm]);
+  const key = JSON.stringify([s.id, s.canReply, s.prompt, s.ask, s.attention?.message, S.keysOpen, ocTerm, s.canBackground]);
   if (key === lastDockKey && dock.childElementCount) return;
   lastDockKey = key;
   const draft = $("#msg")?.value ?? S.drafts[s.id] ?? "";
@@ -703,11 +713,14 @@ function renderDock(s) {
     const p = s.prompt;
     html += `<div class="prompt-card">
       <div class="q">${icon("alert")}<span>${esc(p.question)}</span></div>
-      ${p.context.length ? `<pre class="ctx">${esc(p.context.join("\n"))}</pre>` : ""}
+      ${p.tool ? toolView(p.tool) : p.context.length ? `<pre class="ctx">${esc(p.context.join("\n"))}</pre>` : ""}
       ${s.canReply ? `<div class="opts">${p.options.map((o) => `<button class="btn ${o.n === primaryOpt(p) ? "primary" : ""}" data-opt="${o.n}"><span class="n">${o.n}</span>${esc(o.label)}</button>`).join("")}</div>` : ""}
     </div>`;
   } else if (s.attention) {
     html += `<div class="prompt-card"><div class="q">${icon("alert")}<span>${esc(s.attention.message)}</span></div></div>`;
+  }
+  if (s.canReply && s.canBackground) {
+    html += `<div class="bg-bar"><button class="btn" id="bgbtn">${icon("down")} Run in background</button><span class="muted">The command keeps running; Claude carries on.</span></div>`;
   }
   if (!s.canReply) {
     html += `<div class="watch-only"><b>Watch-only.</b> This session was started outside tmux, so Agents Away can show it but can't type into it. To reply from here: exit it on the PC and resume it from <b>New session → Resume</b>, or run <code>claude --resume</code> again (new sessions go through tmux automatically).</div>`;
@@ -728,10 +741,16 @@ function renderDock(s) {
   if (s.prompt?.form) wireOcForm(s, dock);
   dock.querySelectorAll("[data-opt]").forEach((b) => (b.onclick = async () => {
     b.disabled = true; vibrate();
-    try { await api(`/api/session/${s.id}/choose`, { n: +b.dataset.opt }); toast("Sent"); }
+    try { await api(`/api/session/${encodeURIComponent(s.id)}/choose`, { n: +b.dataset.opt, key: s.prompt?.key ?? "" }); toast("Sent"); }
     catch (e) { toast(e.message, true); b.disabled = false; }
   }));
   if (s.ask) wireAsk(dock, s);
+  const bgb = $("#bgbtn");
+  if (bgb) bgb.onclick = async () => {
+    bgb.disabled = true; vibrate();
+    try { await api(`/api/session/${encodeURIComponent(s.id)}/keys`, { keys: ["C-b"] }); toast("Moved to the background"); }
+    catch (err) { toast(err.message, true); bgb.disabled = false; }
+  };
   $("#palbtn") && ($("#palbtn").onclick = () => openPalette(s));
   dock.querySelectorAll("[data-key]").forEach((b) => (b.onclick = async () => {
     vibrate(6);
@@ -859,6 +878,28 @@ addEventListener("hashchange", () => setTimeout(updateNewest, 50));
 
 function scrollChatToEnd(force) { if (force || nearBottom()) requestAnimationFrame(() => window.scrollTo(0, document.documentElement.scrollHeight)); }
 
+/** What a permission prompt is about, structured (server: approval.ts): a plan as markdown, a command
+ *  as code, an edit as a diff, other tools as labelled fields. */
+/** Same as approval.ts toolLine (server, for notifications). */
+function toolLine(t) {
+  if (t.md) { const h = t.md.split("\n").map((l) => l.replace(/^[#>*\s-]+/, "").replace(/[*_`]/g, "").trim()).find(Boolean); return `Plan ready${h ? ": " + h : ""}`; }
+  if (t.name === "Bash" || t.name === "bash" || t.name === "shell") return `Run: ${t.code?.split("\n")[0] ?? ""}`;
+  if (t.path) return `${t.title}: ${t.path}`;
+  return t.fields?.[0] ? `${t.title}: ${t.fields[0][1].split("\n")[0]}` : t.title;
+}
+function toolView(t) {
+  const diff = t.diff ? `<pre class="tv-diff">${t.diff.map((l) => l.t === "@" ? `<span class="d-sep"></span>` : `<span class="d-${l.t === "+" ? "add" : l.t === "-" ? "del" : "ctx"}">${esc(l.t === " " ? "  " : l.t + " ")}${esc(l.s)}</span>`).join("")}</pre>` : "";
+  return `<div class="tool-view">
+    <div class="tv-head"><b>${esc(t.title)}</b>${t.path ? `<code class="tv-path">${esc(t.path)}</code>` : ""}</div>
+    ${t.desc ? `<p class="tv-desc">${esc(t.desc)}</p>` : ""}
+    ${t.md ? `<div class="tv-md msg-text">${md(t.md)}</div>` : ""}
+    ${t.code ? `<pre class="tv-code">${esc(t.code)}</pre>` : ""}
+    ${diff}
+    ${t.fields?.length ? `<dl class="tv-fields">${t.fields.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl>` : ""}
+    ${t.clipped ? `<p class="muted tv-more">Longer than shown here: see the Terminal tab.</p>` : ""}
+  </div>`;
+}
+const OPEN_THINKING = new Set();
 function itemEl(it, st = S.chat) {
   const d = document.createElement("div");
   if (it.k === "user") {
@@ -888,6 +929,15 @@ function itemEl(it, st = S.chat) {
   }
   else if (it.k === "command") { d.className = "msg-cmd"; d.textContent = it.text; }
   else if (it.k === "note") { d.className = "msg-note"; d.textContent = it.text; }
+  else if (it.k === "thinking") {
+    // Collapsed; stays open across re-renders while this phone has it open.
+    const key = it.ts + ":" + it.text.length + ":" + it.text.slice(0, 40);
+    const det = document.createElement("details"); det.className = "msg-think"; det.open = OPEN_THINKING.has(key);
+    const words = it.text.split(/\s+/).length;
+    det.innerHTML = `<summary>${icon("sparkle")}<span>Thinking</span><span class="muted">${words} word${words === 1 ? "" : "s"}</span></summary><div class="think-body">${md(it.text)}</div>`;
+    det.ontoggle = () => { det.open ? OPEN_THINKING.add(key) : OPEN_THINKING.delete(key); };
+    d.className = "msg-think-wrap"; d.appendChild(det);
+  }
   else if (it.k === "text") {
     d.className = "msg-text"; d.innerHTML = md(it.text);
     d.querySelectorAll("img").forEach((img) => {
@@ -1507,7 +1557,7 @@ function renderSearch() {
       if (my !== seq) return;
       const live = new Set(S.sessions.map((s) => s.id));
       box.innerHTML = results.length ? `<div class="section-h"><h2>${results.length} session${results.length > 1 ? "s" : ""}</h2></div><div class="stack">${results.map((r) => `
-        <a class="card sr" href="#/s/${r.sessionId}">
+        <a class="card sr" href="#/s/${encodeURIComponent(r.sessionId)}">
           <div class="sr-h"><div class="t">${esc(r.title || r.sessionId.slice(0, 8))}</div>${live.has(r.sessionId) ? '<span class="chip ok">running</span>' : `<span class="muted" style="font-size:12px">${ago(r.mtime)}</span>`}</div>
           <div class="s">${esc(r.home)} · ${r.count} match${r.count > 1 ? "es" : ""}</div>
           ${r.hits.map((h) => `<div class="hit"><span class="who">${h.role === "user" ? "You" : "Claude"}</span>${esc(h.pre)}<mark>${esc(h.hit)}</mark>${esc(h.post)}</div>`).join("")}
@@ -1537,7 +1587,7 @@ async function shrinkImage(f, max = 2000) {
 // ───────── review view ─────────
 async function renderReview(id) {
   let r = S.reviews.find((x) => x.id === id);
-  if (!r) { try { r = await api(`/api/review/${id}`); } catch { app.innerHTML = `<header class="bar"><button class="icon-btn" onclick="location.hash='#/'">${icon("back")}</button><div class="grow bar-title">Review not found</div></header>`; return; } }
+  if (!r) { try { r = await api(`/api/review/${id}`); } catch { app.innerHTML = `<header class="bar"><button class="icon-btn" id="rv-back">${icon("back")}</button><div class="grow bar-title">Review not found</div></header>`; $("#rv-back").onclick = () => nav("#/"); return; } }
   const draft = $("#rcomment")?.value ?? "";
   app.innerHTML = `
     <header class="bar">
@@ -1883,7 +1933,7 @@ async function openNew() {
     };
   };
   const showResume = () => {
-    pane.innerHTML = launchPicker() + (data.recent.length ? data.recent.map((r) => `<button class="list-row" data-sid="${r.sessionId}" data-cwd="${esc(r.cwd)}">
+    pane.innerHTML = launchPicker() + (data.recent.length ? data.recent.map((r) => `<button class="list-row" data-sid="${esc(r.sessionId)}" data-cwd="${esc(r.cwd)}">
       <div class="grow"><div class="t">${esc(r.title || r.sessionId.slice(0, 8))}</div><div class="s">${esc(r.home)}</div></div><span class="muted" style="font-size:12px">${ago(r.mtime)}</span></button>`).join("")
       : `<div class="empty">No recent sessions</div>`);
     wireLaunch(pane);
@@ -1938,7 +1988,7 @@ async function openSettings() {
     <p class="muted" style="font-size:12.5px;margin:8px 2px 0">A phone is signed out after this long without opening Agents Away. Applies to all paired phones.</p>
     <div class="set-label" style="margin-top:16px">Paired devices</div>
     <div id="devices" class="devices"><div class="muted" style="font-size:13px">Loading…</div></div>
-    <p class="muted" style="font-size:12.5px;margin:16px 2px 0">Connected to ${esc(S.host)} · ${esc(location.host)}</p>`);
+    <p class="muted" style="font-size:12.5px;margin:16px 2px 0">Agents Away ${esc(S.version ?? "")} · connected to ${esc(S.host)} · ${esc(location.host)}</p>`);
   const loadDevices = async () => {
     const box = el.querySelector("#devices");
     try {

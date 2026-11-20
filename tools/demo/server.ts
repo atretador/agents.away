@@ -29,15 +29,78 @@ const sessions = [
     status: "waiting", activityAt: now - 1 * min, startedAt: now - 50 * min,
     attention: { message: "Claude needs your permission to use Bash", at: now - 1 * min },
     prompt: {
-      question: "Do you want to proceed?",
-      context: ["Bash command", "", "  npm run test:e2e -- --grep checkout --repeat-each 5", "  Run the checkout tests 5 times to confirm the flake is gone"],
-      options: [{ n: 1, label: "Yes" }, { n: 2, label: "Yes, and don't ask again for npm run test:e2e commands in ~/code/shop" }, { n: 3, label: "No, and tell Claude what to do differently (esc)" }],
+      question: "Do you want to make this edit to checkout.spec.ts?",
+      context: ["Edit file", "tests/e2e/checkout.spec.ts"],
+      options: [{ n: 1, label: "Yes" }, { n: 2, label: "Yes, allow all edits during this session (shift+tab)" }, { n: 3, label: "No, and tell Claude what to do differently (esc)" }],
       selected: 1,
+      tool: {
+        name: "Edit", title: "Edit", path: "tests/e2e/checkout.spec.ts",
+        diff: [
+          { t: " ", s: "  await page.getByRole('button', { name: 'Pay now' }).click();" },
+          { t: "-", s: "  await page.waitForTimeout(2000);" },
+          { t: "-", s: "  expect(await page.locator('.order-id').textContent()).toBeTruthy();" },
+          { t: "+", s: "  // Wait for the order, not a fixed time: the payment mock sometimes takes 3 s." },
+          { t: "+", s: "  await expect(page.locator('.order-id')).toBeVisible({ timeout: 10_000 });" },
+          { t: " ", s: "});" },
+        ],
+      },
+    },
+  },
+  {
+    ...base, id: "s-cache", name: "cc-api-2", title: "Cache product listings", cwd: "/home/demo/code/api", home: "~/code/api",
+    status: "waiting", activityAt: now - 3 * min, startedAt: now - 25 * min,
+    context: { pct: 22, tokens: 220_000, size: 1_000_000, model: "claude-fable-5-2" },
+    prompt: {
+      question: "Would you like to proceed?",
+      context: ["Ready to code?", "Here is Claude's plan:"],
+      options: [{ n: 1, label: "Yes, and auto-accept edits" }, { n: 2, label: "Yes, and manually approve edits" }, { n: 3, label: "No, keep planning" }],
+      selected: 1,
+      tool: {
+        name: "ExitPlanMode", title: "Plan",
+        md: "## Cache product listings in Redis\n\n**Summary:** listing pages hit Postgres on every request (p95 420 ms). Cache the listing query per category for 60 s and invalidate on product writes.\n\n### Steps\n1. Add `ListingCache` in `src/cache/listings.ts` (Redis `GET`/`SETEX`, key `listings:<category>:<page>`).\n2. Use it in `GET /products` before the database query.\n3. Invalidate the category's keys in `ProductService.save()` and `delete()`.\n4. Tests: cache hit, miss, invalidation; a load test before/after.\n\n### Questions\n- Is **60 s** staleness acceptable for prices, or should price changes bypass the cache?\n- Keep caching when Redis is down (fall back to the database), or fail loudly?",
+      },
+    },
+  },
+  {
+    ...base, id: "s-plan", name: "cc-app", title: "Plan the offline mode", cwd: "/home/demo/code/app", home: "~/code/app",
+    status: "waiting", activityAt: now - 2 * min, startedAt: now - 15 * min,
+    ask: {
+      id: "toolu_demo", current: 0, partial: false,
+      tabs: [{ header: "Storage", done: false }, { header: "Sync", done: false }],
+      questions: [
+        { question: "Where should offline data live on the device?", header: "Storage", multiSelect: false, options: [
+          { label: "IndexedDB", description: "Structured, large quota, works in every modern browser" },
+          { label: "SQLite (WASM + OPFS)", description: "Real SQL queries; bigger download, newer browsers only" },
+          { label: "localStorage", description: "Simplest, but only ~5 MB and strings only" },
+        ] },
+        { question: "How should edits made offline sync back?", header: "Sync", multiSelect: false, options: [
+          { label: "Last write wins", description: "Simple; can drop a concurrent edit" },
+          { label: "Per-field merge", description: "Keeps both sides' changes when they touch different fields" },
+        ] },
+      ],
     },
   },
   { ...base, id: "s-landing", name: "cc-site", title: "Landing page redesign", cwd: "/home/demo/code/site", home: "~/code/site", status: "idle", activityAt: now - 4 * min, startedAt: now - 120 * min, pinned: true },
-  { ...base, id: "s-api", name: "cc-api", title: "Add rate limiting to the public API", cwd: "/home/demo/code/api", home: "~/code/api", status: "working", activityAt: now, startedAt: now - 20 * min },
-  { ...base, id: "ses_demo1", name: "opencode", title: "Migrate billing to the new invoices table", cwd: "/home/demo/code/billing", home: "~/code/billing", status: "idle", activityAt: now - 26 * min, startedAt: now - 90 * min, kind: "opencode", agentName: "build", tmux: null },
+  { ...base, id: "s-api", name: "cc-api", title: "Add rate limiting to the public API", cwd: "/home/demo/code/api", home: "~/code/api", status: "working", activityAt: now, startedAt: now - 20 * min, canBackground: true },
+  {
+    ...base, id: "ses_demo1", name: "opencode", title: "Migrate billing to the new invoices table", cwd: "/home/demo/code/billing", home: "~/code/billing",
+    status: "idle", activityAt: now - 26 * min, startedAt: now - 90 * min, kind: "opencode", agentName: "build", tmux: null,
+    modelName: "deepseek-v4.1-flash-free",
+    context: { pct: 41, tokens: 53_000, size: 128_000, model: "deepseek-v4.1-flash-free" }, agents: { total: 1, running: 0 },
+  },
+  {
+    ...base, id: "ses_demo2", name: "opencode", title: "Upgrade the date library", cwd: "/home/demo/code/billing", home: "~/code/billing",
+    status: "waiting", activityAt: now - 1 * min, startedAt: now - 9 * min, kind: "opencode", agentName: "build", tmux: null,
+    modelName: "deepseek-v4.1-flash-free",
+    context: { pct: 18, tokens: 23_000, size: 128_000, model: "deepseek-v4.1-flash-free" },
+    prompt: {
+      question: "Allow bash?",
+      context: ["npm install date-fns@5 && npm run typecheck"],
+      options: [{ n: 1, label: "Allow once" }, { n: 2, label: "Always allow" }, { n: 3, label: "Reject" }],
+      selected: 1,
+      tool: { name: "bash", title: "Run a command", desc: "Install date-fns v5 and list what breaks", code: "npm install date-fns@5 && npm run typecheck" },
+    },
+  },
   { ...base, id: "s-docs", name: "cc-docs", title: "Write the v2 migration guide", cwd: "/home/demo/code/docs", home: "~/code/docs", status: "working", activityAt: now, startedAt: now - 8 * min, muted: true },
 ];
 
@@ -45,6 +108,7 @@ const sessions = [
 const ctx = (pct: number, size = 1_000_000) => ({ pct, tokens: Math.round((pct / 100) * size), size, model: "claude-opus-5-5" });
 const extra: Record<string, any> = {
   "s-tests": { context: ctx(38), agents: { total: 3, running: 1 } },
+  "s-plan": { context: ctx(12), agents: { total: 1, running: 0 } },
   "s-landing": { context: ctx(64), agents: { total: 2, running: 0 } },
   "s-api": { context: ctx(21), agents: { total: 4, running: 2 } },
   "s-docs": { context: ctx(88), agents: null },
@@ -55,6 +119,7 @@ for (const s of sessions) Object.assign(s, extra[s.id] ?? {});
 const agent = (id: string, description: string, type: string, status: string, startedMin: number, endedMin: number | null) =>
   ({ id, description, type, status, toolUseId: null, startedAt: now - startedMin * min, endedAt: endedMin == null ? null : now - endedMin * min, depth: 1, parentAgentId: null, model: "claude-opus-5-5", summary: null });
 const agents: Record<string, any[]> = {
+  "s-plan": [agent("p-scan", "List every network call in the app", "Explore", "done", 13, 12)],
   "s-api": [
     agent("a-redis", "Check Redis client options for atomic counters", "Explore", "running", 3, null),
     agent("a-tests", "Write rate-limit tests (burst, refill, 429)", "general-purpose", "running", 2, null),
@@ -84,6 +149,23 @@ const agentChats: Record<string, any[]> = {
 
 // ───────── chats ─────────
 const chats: Record<string, any[]> = {
+  "ses_demo2": [
+    { k: "user", text: "Upgrade date-fns to v5 and fix whatever breaks.", ts: iso(9) },
+    { k: "tool", id: "d1", name: "grep", summary: "from 'date-fns' in src", detail: "{}", ts: iso(8) },
+    { k: "result", id: "d1", text: "14 files import date-fns", error: false },
+    { k: "tool", id: "d2", name: "read", summary: "CHANGELOG of date-fns v5", detail: "{}", ts: iso(6) },
+    { k: "result", id: "d2", text: "Breaking: format tokens YYYY → yyyy; parseISO now strict…", error: false },
+    { k: "text", text: "Three breaking changes affect us: the `yyyy` tokens, stricter `parseISO`, and `differenceInDays` rounding. I'll install v5 first and let the type checker list every call site.", ts: iso(1) },
+  ],
+  "s-plan": [
+    { k: "user", text: "Plan offline mode for the field app: technicians lose signal in basements.", ts: iso(14) },
+    { k: "tool", id: "q1", name: "Read", summary: "src/data/store.ts", detail: "{}", ts: iso(13) },
+    { k: "result", id: "q1", text: "export const store = createStore({ … })", error: false },
+    { k: "tool", id: "q2", name: "Grep", summary: "\"fetch(\" in src", detail: "{}", ts: iso(12) },
+    { k: "result", id: "q2", text: "23 matches in 9 files", error: false },
+    { k: "text", text: "Every write goes straight to `fetch` today, so offline needs a local store plus a sync queue. Two decisions shape the rest of the plan:", ts: iso(2) },
+    { k: "tool", id: "q3", name: "AskUserQuestion", summary: "Storage, Sync", detail: "{}", ts: iso(2) },
+  ],
   "s-landing": [
     { k: "user", text: "The hero feels cramped on phones. Can you rework the spacing and make the CTA stand out more?", ts: iso(18) },
     { k: "text", text: "Let me look at the current hero styles first.", ts: iso(17) },
@@ -110,6 +192,7 @@ const chats: Record<string, any[]> = {
   ],
   "ses_demo1": [
     { k: "user", text: "Move invoice reads to the new invoices table and keep the old one as a fallback for a week.", ts: iso(60) },
+    { k: "thinking", text: "The old `invoices` table is still written by the nightly import, so dropping reads from it now would hide anything the import adds before the backfill finishes. Reading v2 first and falling back keeps both paths correct.\n\nA feature flag makes the fallback easy to remove next week, and logging each fallback hit shows when it's safe to delete.", ts: iso(59) },
     { k: "text", text: "Plan:\n1. Add a repository that reads from `invoices_v2` first.\n2. Fall back to `invoices` when a row is missing, and log it.\n3. Feature flag `billing.v2_reads`, on by default.", ts: iso(58) },
     { k: "tool", id: "o1", name: "edit", summary: "src/billing/repository.ts", detail: "{}", ts: iso(40) },
     { k: "result", id: "o1", text: "Edit applied successfully.", error: false },
@@ -117,6 +200,12 @@ const chats: Record<string, any[]> = {
     { k: "text", text: "All 214 billing tests pass. The fallback logged 0 misses against the staging snapshot.", ts: iso(26) },
   ],
 };
+chats["s-cache"] = [
+  { k: "user", text: "Product listings are slow. Plan a cache for them; don't write code yet.", ts: iso(25) },
+  { k: "tool", id: "c1", name: "Grep", summary: "findListings in src", detail: "{}", ts: iso(22) },
+  { k: "result", id: "c1", text: "src/routes/products.ts:14\nsrc/services/product.ts:88", error: false },
+  { k: "text", text: "Listings run the same query for every visitor. Here's a plan.", ts: iso(4) },
+];
 chats["s-api"] = [
   { k: "user", text: "Add per-key rate limiting to the public API: 100 requests a minute, with a Retry-After header.", ts: iso(12) },
   { k: "text", text: "I'll add a token-bucket limiter keyed by API key, backed by Redis so it works across instances.", ts: iso(11) },
@@ -234,6 +323,23 @@ Bun.serve({
       const items = agentChats[am[2]] ?? [{ k: "text", text: "Done.", ts: iso(5) }];
       return json({ agent: (agents[am[1]] ?? []).find((a) => a.id === am![2]) ?? null, items, start: 0, end: items.length + 1 });
     }
+    if (p === "/api/opencode/catalog") return json({
+      models: [
+        { ref: "opencode/deepseek-v4.1-flash-free", name: "DeepSeek V4.1 Flash (free)", provider: "opencode", variants: ["low", "medium", "high"] },
+        { ref: "opencode/deepseek-v4-pro", name: "DeepSeek V4 Pro", provider: "opencode", variants: ["low", "medium", "high"] },
+        { ref: "opencode/gemini-4-neon", name: "Gemini 4 Neon", provider: "opencode", variants: [] },
+        { ref: "anthropic/claude-sonnet-5-5", name: "Claude Sonnet 5.5", provider: "anthropic", variants: ["low", "medium", "high", "max"] },
+        { ref: "openai/gpt-6-mini", name: "GPT-6 mini", provider: "openai", variants: ["low", "medium", "high"] },
+      ],
+      agents: [
+        { id: "build", description: "Default agent: full tool access for writing code" },
+        { id: "plan", description: "Read-only: analyses and plans without changing files" },
+        { id: "orchestrator", description: "Splits big tasks across subagents" },
+      ],
+      defaultModel: "opencode/deepseek-v4.1-flash-free",
+      recent: ["opencode/deepseek-v4.1-flash-free", "opencode/deepseek-v4-pro", "anthropic/claude-sonnet-5-5"],
+      variants: { "opencode/deepseek-v4.1-flash-free": "medium" },
+    });
     if (p === "/api/devices") return json({ signInDays: 30, devices: [{ id: "d1", created: now - 9 * 86400_000, lastSeen: now, expires: now + 30 * 86400_000, ua: "Mozilla/5.0 (Linux; Android 15; Pixel 9) Chrome/140", addr: "10.0.0.4", current: true }] });
     let m;
     if ((m = p.match(/^\/api\/review\/([\w-]+)$/))) return json(reviews.find((r) => r.id === m![1]) ?? {});

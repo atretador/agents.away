@@ -1,5 +1,8 @@
 # Agents Away
 
+[![CI](https://github.com/atretador/agents.away/actions/workflows/ci.yml/badge.svg)](https://github.com/atretador/agents.away/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 **A phone companion for the Claude Code (and OpenCode) sessions running on your own PC.**
 Follow a session's chat live, answer it, approve permission prompts, get push notifications when
 it needs you or finishes, and let Claude send you screenshots to approve, all from your phone.
@@ -19,7 +22,7 @@ It's a web app (PWA) that you add to your home screen, not an app store download
   </tr>
   <tr>
     <td width="33%"><img src="docs/screenshots/agents.png" alt="Context % and the session's subagents"></td>
-    <td width="33%"><img src="docs/screenshots/subagent.png" alt="A subagent's chat, read-only"></td>
+    <td width="33%"><img src="docs/screenshots/question.png" alt="Answering Claude's multiple-choice questions from the phone"></td>
     <td width="33%"><img src="docs/screenshots/changes.png" alt="Changes tab: the git diff of the session's repo"></td>
   </tr>
   <tr>
@@ -61,8 +64,8 @@ It's a web app (PWA) that you add to your home screen, not an app store download
 - **Start, resume and end sessions** from the phone, choosing model, effort and permission mode.
 - **Search** across all past Claude Code transcripts.
 - **OpenCode** sessions too (optional), through OpenCode's own server API.
-- **Themes:** Claude Light and Claude Dark (warm, Claude Code's colours), neutral Light and Dark, and
-  OpenCode (near-black); Auto follows the phone. Accent colours and text size too.
+- **Themes:** Warm Light and Warm Dark, neutral Light and Dark, and Black (near-black, OpenCode-style);
+  Auto follows the phone. Accent colours and text size too.
 
 ## Requirements
 
@@ -72,6 +75,24 @@ It's a web app (PWA) that you add to your home screen, not an app store download
 - Optional: `ripgrep` (search), `qrencode` (QR codes when pairing), OpenCode.
 - A phone on the same network as the PC, or connected to it over a VPN. Android/Chrome works best;
   iOS needs the app added to the Home Screen before it can receive notifications (iOS 16.4+).
+
+## Compatibility
+
+Agents Away reads Claude Code's local files (session status files, transcripts, subagent folders) and its
+terminal screen, none of which are a documented API. A Claude Code update can change them and break a
+feature without warning, so here is exactly what it has been tested with:
+
+| | Tested | Notes |
+|---|---|---|
+| Claude Code | 2.1.329 | Newer versions usually work; if something breaks after an update, open an issue with the version |
+| OpenCode | 2.3.2 | Optional; uses OpenCode's own server API |
+| OS | Arch Linux (kernel 7.3) | Any Linux with a systemd user session should work; macOS/Windows aren't supported |
+| Bun / tmux | 1.4.4 / 3.8 | Bun ≥ 1.1 and tmux ≥ 3.2 required |
+| Shell | fish 4.9 | The bash/zsh wrapper is included but has had less real-world use |
+| Phone | Android, Chrome | iPhone (Safari, iOS 16.4+) and Firefox are untested |
+
+Known limits: the context-window size is inferred from the model name (Claude Code doesn't write it to
+disk); a subagent's "running" state is an estimate from its files.
 
 ## Install
 
@@ -123,8 +144,12 @@ The phone stays signed in as long as you keep using it. After **30 days without 
 signed out and needs a new pairing link. Change that period (1 day to 1 year) and see or remove
 signed-in devices in the app under **⚙ → Sign-in**.
 
-The CA is generated on your PC and only ever signs Agents Away's certificate. If your PC's IP changes,
-run `bin/agents-away-certs && systemctl --user restart agents-away`. The phone keeps the same CA.
+The CA is generated on your PC and only ever signs Agents Away's certificate. It is name-constrained to
+private IP ranges and your PC's own names, so even a leaked CA key can't impersonate other websites to
+your phone. When installing it, compare the SHA-256 fingerprint the phone shows with the one
+`agents-away pair` prints. If your PC's IP changes, run `bin/agents-away-certs && systemctl --user
+restart agents-away`; the phone keeps the same CA. Installs from before 0.1.0 have a CA without name
+constraints: `bin/agents-away-certs --new-ca`, restart, then replace the CA on the phone.
 
 ## Using it
 
@@ -137,6 +162,26 @@ run `claude` in a new terminal as usual: the wrapper opens it inside the `agents
   Sessions you start from the phone are attached the same way.
 - Bypass the wrapper once with `command claude …` or `AWAY_NO_TMUX=1 claude`.
 - Already inside tmux? The wrapper steps aside and the session works normally, but read-only.
+
+While Claude Code runs a long command or a subagent, a **Run in background** button appears (the same
+as pressing Ctrl+B at the PC): the command keeps running and Claude carries on with the next step.
+
+### Approving from the phone
+
+Permission prompts show exactly what you're approving: a plan as formatted markdown (summary, steps,
+open questions), a command with its description, an edit as a diff, a new file's content, a web fetch's
+URL. The session list and the notification say it in one line ("Plan ready: …", "Run: npm test"). For
+Claude Code this comes from its `PreToolUse` hook; if you installed the hooks before 0.1.0, run
+`agents-away hooks install` again (`agents-away hooks status` tells you). OpenCode needs no hooks: its
+server API says which tool call a permission request is for.
+
+<table>
+  <tr>
+    <td width="33%"><img src="docs/screenshots/plan.png" alt="A plan approval: the plan as formatted markdown with steps and questions, then the three options"></td>
+    <td width="33%"><img src="docs/screenshots/permission.png" alt="An edit approval: the file name and a red/green diff"></td>
+    <td width="33%"></td>
+  </tr>
+</table>
 
 ### Image reviews
 
@@ -157,10 +202,19 @@ agents-away notify "Title" "Body"     # a plain push
 If [OpenCode](https://opencode.ai) is installed, its sessions appear in the app whenever its
 background server is running (`opencode service start`, or just use OpenCode). You can read, reply,
 interrupt, answer permission requests and question forms (or dismiss them), see the context-window
-% and subagents (child sessions, read-only), and start new OpenCode sessions with a model, variant
+% and subagents (child sessions, read-only), read thinking models' reasoning (collapsed "Thinking"
+blocks), and start new OpenCode sessions with a model, variant
 and agent of your choice (it defaults to the model you used last; recent models are one tap). The
 Terminal tab shows the session's own OpenCode terminal (or opens one) and the composer types into
 it there. Not yet supported: search.
+
+<table>
+  <tr>
+    <td width="33%"><img src="docs/screenshots/opencode-chat.png" alt="An OpenCode session on DeepSeek V4.1 Flash (free), its thinking expanded, in the Black theme"></td>
+    <td width="33%"><img src="docs/screenshots/opencode-permission.png" alt="OpenCode asking to run a command: Allow once, Always allow or Reject"></td>
+    <td width="33%"><img src="docs/screenshots/opencode-new.png" alt="Starting an OpenCode session: model, effort variant and agent"></td>
+  </tr>
+</table>
 
 ## Commands
 
@@ -241,6 +295,32 @@ rm -rf ~/.config/agents-away ~/.local/share/agents-away   # optional: config, ce
 ```
 
 Also remove the Agents Away CA from your phone's trusted certificates.
+
+## Terms of use
+
+Agents Away is a remote control for **your own** sessions. It runs the official, unmodified `claude`
+program you signed in to yourself, in a terminal on your PC, and relays what you type and tap on your
+phone. It never reads, stores or uses your Claude login or tokens, never calls Anthropic's API, and
+doesn't proxy, share or resell access. To stay within
+[Anthropic's terms](https://code.claude.com/docs/en/legal-and-compliance) and
+[Usage Policy](https://www.anthropic.com/legal/aup):
+
+- **Your account, your devices.** Pair only your own phone. Don't give anyone else a pairing link or
+  access to the app: that would be sharing your account, which Anthropic's Consumer Terms don't allow.
+- **You stay in the loop.** Everything Claude receives is something you typed or tapped. Agents Away has
+  no auto-approve or auto-reply, and forks shouldn't add unattended automation that drives a
+  subscription session (the Consumer Terms restrict automated access except via an API key).
+- Normal usage limits apply: work done from the phone counts against your plan like any other.
+
+This is a summary, not legal advice; the linked terms are what count.
+
+Agents Away is an independent open-source project, not affiliated with or endorsed by Anthropic or
+OpenCode. Claude and Claude Code are trademarks of Anthropic, PBC; OpenCode is a project of its
+respective owners. They're named here only to say what Agents Away works with.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

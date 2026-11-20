@@ -13,11 +13,12 @@ claude() {
   case "${1:-}" in
     mcp|config|doctor|update|install|plugin|plugins|setup-token|migrate-installer|auth) command claude "$@"; return ;;
   esac
-  local conf="$HOME/.config/agents-away/tmux.conf" base name i=2 v val
+  # AWAY_TMUX_SOCKET / AWAY_CONFIG_DIR: same overrides as the server (e.g. a separate test instance).
+  local sock="${AWAY_TMUX_SOCKET:-agents-away}" conf="${AWAY_CONFIG_DIR:-$HOME/.config/agents-away}/tmux.conf" base name i=2 v val
   base=$(basename "$PWD" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_-]+/-/g; s/^-+|-+$//g' | cut -c1-20)
   [ -n "$base" ] || base=home
   name="cc-$base"
-  while tmux -L agents-away -f "$conf" has-session -t "=$name" 2>/dev/null; do
+  while tmux -L "$sock" -f "$conf" has-session -t "=$name" 2>/dev/null; do
     name="cc-$base-$i"; i=$((i + 1))
   done
   local envargs=()
@@ -30,5 +31,5 @@ claude() {
   local bin
   bin=$(type -P claude 2>/dev/null || whence -p claude 2>/dev/null)
   [ -n "$bin" ] || { echo "claude: not found on PATH" >&2; return 127; }
-  tmux -L agents-away -f "$conf" new-session -s "$name" -c "$PWD" "${envargs[@]}" -- "$bin" "$@"
+  tmux -L "$sock" -f "$conf" new-session -s "$name" -c "${PWD//#/##}" "${envargs[@]}" -- "$bin" "$@"
 }

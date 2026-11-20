@@ -19,6 +19,18 @@ User-facing docs: [README.md](README.md). This file is for coding agents changin
   `devices.json` (hashed device sign-ins). The local token must never reach a phone. Never log or
   print them, or OpenCode's `~/.config/opencode/service.json` password.
 
+## Terms-of-service rules (don't break these)
+
+- Never read, copy or use Claude Code's credentials (`~/.claude/.credentials.json`, OAuth tokens) and
+  never call Anthropic's API on the user's behalf: Agents Away only drives the official `claude` binary
+  in a terminal.
+- Every input to a session must come from the user (typed, tapped, or a review they answered). No
+  auto-approve, auto-reply, scheduled or unattended prompts, and no headless `claude -p` runs on a
+  subscription.
+- Single user: no features for sharing access with other people.
+- Don't use "Claude", "Claude Code", "Anthropic" or "OpenCode" in product, feature or theme names, or
+  their logos; plain descriptive text ("works with Claude Code") is fine.
+
 ## Layout
 
 | Path | What |
@@ -63,7 +75,7 @@ User-facing docs: [README.md](README.md). This file is for coding agents changin
   when multi-select), the last "Type something" row, the `Next`/`Submit` row of a multi-select, and
   `N. Chat about this` under a separator. `detectPrompt` ignores such forms (except the "Review your
   answers" step, which stays a normal prompt card), so the generic menu code never answers them.
-  The questions come from the `PreToolUse` hook (matcher `AskUserQuestion`): current Claude Code only
+  The questions come from the `PreToolUse` hook: current Claude Code only
   writes the `tool_use` line to the transcript once it's answered. Fallbacks: `pendingAsk` (transcript
   tail), then the screen alone (`ask.partial`: only the visible question, answered on its own).
   Sessions carry `ask {id, questions, current, partial, tabs}`; `POST /api/session/:id/ask
@@ -74,7 +86,14 @@ User-facing docs: [README.md](README.md). This file is for coding agents changin
   multi-select, and Enter on "Submit answers" confirms the review step. One-question single-select
   forms submit on Enter with no review step.
 - **Hooks:** Claude Code runs `agents-away hook` (stdin JSON) on Notification, Stop, UserPromptSubmit,
-  PostToolUse and PreToolUse (AskUserQuestion only). The CLI forwards it to the local API `/hook`. Install with `agents-away hooks install`.
+  PostToolUse and PreToolUse (all tools). The CLI forwards it to the local API `/hook`. Install with `agents-away hooks install`.
+- **Approval cards** (`src/approval.ts`): PreToolUse/PostToolUse keep each session's started-but-unfinished
+  tool calls; `toolForScreen` picks the one whose hint (command start, file name, "proceed" for plans)
+  is on the screen and `describeTool` turns it into `prompt.tool {title, path, desc, md, code, diff,
+  fields}`: plans as markdown, commands as code, edits as diffs. No match → the screen text as before.
+  OpenCode: a permission's `source {messageID, id}` points at its tool part; `permissionTool`
+  (opencode.ts, cached per request) maps it with `describeOcTool` (its tool names: shell/bash, edit
+  {path, oldString, newString}, write, read, webfetch, execute, patch).
 - **Reviews:** `agents-away review` long-polls `/review/:id/wait`. If it times out, the answer is later
   bracketed-pasted into the session as `[Phone review of "…" (id …)] …` (OpenCode: posted as a message;
   the CLI finds the session from `CLAUDE_CODE_SESSION_ID` / `OPENCODE_SESSION_ID`).
@@ -115,16 +134,23 @@ systemctl --user stop agents-away && bun src/server.ts
 
 - Type-check / syntax-check: `bun build src/server.ts --target bun --outdir /tmp/away-build` and
   `bun build public/app.js --no-bundle > /dev/null`.
-- There is no automated test suite. Verify UI changes in a phone-sized headless browser
+- **Tests:** `bun test` (in `tests/`, run by CI in `.github/workflows/ci.yml` with `bun run check`).
+  `tests/setup.ts` is preloaded (bunfig.toml) and points config, data and `HOME` at a temp folder:
+  tests must never touch the real `~/.claude` or `~/.config/agents-away`. Transcript lines are built
+  with `tests/lines.ts`. Add a test when you change the parser, prompt/form detection, sign-in or the
+  hooks installer. Never start a test server on the installed service's ports or tmux socket (use
+  `AWAY_PORT`/`AWAY_LOCAL_PORT`/`AWAY_ONBOARD_PORT`/`AWAY_TMUX_SOCKET`).
+- Verify UI changes in a phone-sized headless browser
   (Playwright, 390×844, `isMobile`, `hasTouch`). Sign the test browser in by opening a fresh link from
   `agents-away pair` (`/pair?t=…`); for curl, open one with `-c jar` and reuse the jar with `-b jar`
   (plus `--cacert ~/.config/agents-away/certs/ca.crt` and the `x-away: 1` header on POSTs). Remove test
   devices afterwards (⚙ → Sign-in, or `POST /api/devices/:id/signout`).
-- **Demo mode:** `bun tools/demo/server.ts` serves the real `public/` app on http://localhost:7450 with
-  made-up sessions, chats, a diff and reviews (no real data, actions are no-ops). Use it for UI work and
-  for the README screenshots: with it running, `bun add --no-save playwright-core` then
-  `CHROME=<chromium path> bun tools/screenshots.ts` rewrites `docs/screenshots/*.png`. Update the demo
-  data when a feature should appear in the screenshots.
+- **Demo mode:** `bun run demo` serves the real `public/` app on http://localhost:7450 with made-up
+  sessions, chats, a diff, subagents, a question form and reviews (no real data; actions are no-ops). Use
+  it for UI work. `bun run screenshots` starts its own demo server and rewrites `docs/screenshots/*.png`
+  (needs a Chromium: `$CHROME`, Playwright's cache or one on PATH). When a feature should appear in the
+  README, add its data to `tools/demo/server.ts`, a step to `tools/screenshots.ts` and a cell to the
+  README gallery.
 - The client reloads itself after a server restart (build id), so a restart is all a phone needs.
 - POST endpoints require the `x-away: 1` header (CSRF guard). Local API calls need `x-away-token`.
 - Don't break running sessions: restarting the service must never kill the `agents-away` tmux server

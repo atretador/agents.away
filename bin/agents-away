@@ -84,8 +84,15 @@ async function skill(args: string[]) {
   console.error("agents-away skill install|uninstall|status [--claude|--opencode] [--force]"); process.exit(2);
 }
 
+/** SHA-256 fingerprint of the private CA, shown so it can be compared on the phone (the setup page is plain HTTP). */
+function caFingerprint(): string | null {
+  const dir = process.env.AWAY_CONFIG_DIR || join(homedir(), ".config/agents-away");
+  const p = Bun.spawnSync(["openssl", "x509", "-in", join(dir, "certs/ca.crt"), "-noout", "-fingerprint", "-sha256"]);
+  return p.exitCode === 0 ? p.stdout.toString().trim().split("=")[1] ?? null : null;
+}
+
 function usage() {
-  console.log(`agents-away — phone companion for Claude Code sessions
+  console.log(`agents-away ${JSON.parse(readFileSync(join(import.meta.dir, "../package.json"), "utf8")).version} — phone companion for Claude Code and OpenCode sessions
 
   agents-away review [options] <file>...   Send images/videos to the phone for approval
       -t, --title <text>     Short title (default: first file name)
@@ -244,6 +251,8 @@ async function pair() {
   console.log("\n\x1b[33m⚠ The pairing link below signs a phone in with full control of your sessions (typing, approving\n  commands). Use it only on your own phone, over your own LAN or VPN. Never expose Agents Away to the internet.\x1b[0m");
   console.log("\n1) On the phone, install the certificate (once):");
   for (const a of list) console.log(`   http://${a.ip}:${ONBOARD}/   (${a.name})`);
+  const fp = caFingerprint();
+  if (fp) console.log(`   Before installing, check the certificate's SHA-256 fingerprint on the phone matches:\n   ${fp}`);
   await qr(`http://${lan.ip}:${ONBOARD}/`);
   console.log(`\n2) Then open the pairing link — it works once, within ${Math.round(ttl / 60)} minutes:`);
   for (const a of list) console.log(`   https://${a.ip}:${HTTPS}/pair?t=${code}   (${a.name})`);
@@ -294,7 +303,8 @@ async function attach(args: string[]) {
 // ───────── Claude Code hooks (install into ~/.claude/settings.json) ─────────
 const HOOK_EVENTS = ["Notification", "Stop", "UserPromptSubmit", "PostToolUse", "PreToolUse"];
 // PreToolUse only for AskUserQuestion: it carries the questions before the transcript has them.
-const HOOK_MATCHER: Record<string, string> = { PostToolUse: "*", PreToolUse: "AskUserQuestion" };
+// PreToolUse for every tool: the phone shows exactly what a permission prompt is about (approval.ts).
+const HOOK_MATCHER: Record<string, string> = { PostToolUse: "*", PreToolUse: "*" };
 async function hooks(sub: string | undefined) {
   const { writeFileSync, copyFileSync, mkdirSync } = await import("node:fs");
   const dir = join(homedir(), ".claude");
@@ -308,7 +318,11 @@ async function hooks(sub: string | undefined) {
   const isOurs = (h: any) => typeof h?.command === "string" && / hook$/.test(h.command) && /agents-away/.test(h.command);
   const present = HOOK_EVENTS.filter((ev) => (settings.hooks?.[ev] ?? []).some((m: any) => (m.hooks ?? []).some(isOurs)));
   if (sub === "status" || !sub) {
-    console.log(present.length === HOOK_EVENTS.length ? "Agents Away hooks are installed." : present.length ? `Partly installed: ${present.join(", ")}` : "Agents Away hooks are not installed.");
+    // Installed by an older version with a different matcher (e.g. PreToolUse for AskUserQuestion only)?
+    const stale = HOOK_EVENTS.filter((ev) => (settings.hooks?.[ev] ?? []).some((m: any) => (m.hooks ?? []).some(isOurs) && (m.matcher ?? undefined) !== HOOK_MATCHER[ev]));
+    console.log(present.length === HOOK_EVENTS.length && !stale.length ? "Agents Away hooks are installed."
+      : stale.length ? `Agents Away hooks are installed but out of date (${stale.join(", ")}): run agents-away hooks install`
+      : present.length ? `Partly installed: ${present.join(", ")}` : "Agents Away hooks are not installed.");
     return;
   }
   if (sub !== "install" && sub !== "uninstall") { console.error("agents-away hooks install|uninstall|status"); process.exit(2); }
@@ -328,7 +342,10 @@ async function hooks(sub: string | undefined) {
   console.log(sub === "install" ? `Installed Agents Away hooks (${HOOK_EVENTS.join(", ")}) in ${file}` : `Removed Agents Away hooks from ${file}`);
 }
 
+const VERSION = JSON.parse(readFileSync(join(import.meta.dir, "../package.json"), "utf8")).version as string;
+
 switch (cmd) {
+  case "--version": case "-v": case "version": console.log(`agents-away ${VERSION}`); break;
   case "hooks": await hooks(rest[0]); break;
   case "skill": case "skills": await skill(rest); break;
   case "attach": case "a": await attach(rest); break;

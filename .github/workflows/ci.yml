@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.4"
+      - name: Shells and tmux (the wrapper tests run in bash and zsh)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq tmux zsh
+      - run: bun install --frozen-lockfile
+      - name: Unit tests
+        run: bun test
+      - name: Syntax check (server, app, demo)
+        run: bun run check
+      - name: Shell scripts (syntax)
+        run: bash -n install.sh bin/agents-away-certs shell/claude.sh
+      - name: Shell scripts (shellcheck, advisory until it has passed once)
+        continue-on-error: true
+        run: shellcheck --severity=error install.sh bin/agents-away-certs shell/claude.sh

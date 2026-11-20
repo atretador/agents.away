@@ -1,0 +1,3 @@
+[test]
+# Point config/data at a throwaway folder before any module reads them (src/config.ts runs at import).
+preload = ["./tests/setup.ts"]

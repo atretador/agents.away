@@ -5,10 +5,20 @@ set -euo pipefail
 DIR="${AWAY_CONFIG_DIR:-$HOME/.config/agents-away}/certs"
 mkdir -p "$DIR"; chmod 700 "$DIR"; cd "$DIR"
 
+# --new-ca: replace the CA (the phone then has to install the new one; remove the old one there).
+if [[ "${1:-}" == "--new-ca" ]]; then rm -f ca.key ca.crt ca.srl; fi
+
 if [[ ! -f ca.key ]]; then
+  # Name constraints: this CA can only vouch for private addresses and this PC's own names, so even if
+  # its key leaked it couldn't be used to impersonate other websites to the phone.
+  h=$(uname -n)
+  nc="permitted;IP:10.0.0.0/255.0.0.0,permitted;IP:172.16.0.0/255.240.0.0,permitted;IP:192.168.0.0/255.255.0.0"
+  nc="$nc,permitted;IP:100.64.0.0/255.192.0.0,permitted;IP:127.0.0.0/255.0.0.0,permitted;IP:169.254.0.0/255.255.0.0"
+  nc="$nc,permitted;DNS:localhost,permitted;DNS:$h,permitted;DNS:$h.local,permitted;DNS:.local,permitted;DNS:.lan,permitted;DNS:.home.arpa"
   openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes \
-    -keyout ca.key -out ca.crt -days 3650 -subj "/CN=Agents Away local CA ($(uname -n))" \
-    -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign" 2>/dev/null
+    -keyout ca.key -out ca.crt -days 3650 -subj "/CN=Agents Away local CA ($h)" \
+    -addext "basicConstraints=critical,CA:TRUE,pathlen:0" -addext "keyUsage=critical,keyCertSign,cRLSign" \
+    -addext "nameConstraints=critical,$nc" 2>/dev/null
   echo "Created CA: $DIR/ca.crt"
 fi
 
@@ -25,3 +35,4 @@ openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out s
 rm -f server.csr
 chmod 600 *.key
 echo "Server certificate for: $san"
+echo "CA fingerprint (SHA-256): $(openssl x509 -in ca.crt -noout -fingerprint -sha256 | cut -d= -f2)"

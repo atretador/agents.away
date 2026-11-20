@@ -26,7 +26,7 @@ export async function listClaudeProcs(): Promise<ClaudeProc[]> {
       const d = await Bun.file(join(SESS_DIR, f)).json();
       if (d.kind && d.kind !== "interactive") continue;
       const pid = d.pid;
-      if (!existsSync(`/proc/${pid}`)) continue;
+      if (!existsSync(`/proc/${pid}`) || !isSessionId(d.sessionId)) continue;
       let tty: string | null = null;
       try { tty = readlinkSync(`/proc/${pid}/fd/0`); } catch {}
       if (tty && !tty.startsWith("/dev/pts")) tty = null;
@@ -51,7 +51,12 @@ export function ttyLastInput(tty: string | null): number {
 }
 
 const transcriptCache = new Map<string, string>();
+/** Session ids come from files anyone with write access to ~/.claude can name: only plain ids are used
+ *  (they end up in paths, URLs and the phone's HTML). */
+export const isSessionId = (id: unknown): id is string => typeof id === "string" && /^[\w-]{1,128}$/.test(id);
+
 export function transcriptPath(sessionId: string, cwd?: string): string | null {
+  if (!isSessionId(sessionId)) return null;
   const c = transcriptCache.get(sessionId);
   if (c && existsSync(c)) return c;
   if (cwd) {
@@ -86,6 +91,7 @@ export type Item =
   | { k: "user"; text: string; ts?: string }
   | { k: "command"; text: string; ts?: string }
   | { k: "text"; text: string; ts?: string }
+  | { k: "thinking"; text: string; ts?: string } // a thinking model's reasoning (OpenCode), shown collapsed
   | { k: "tool"; id: string; name: string; summary: string; detail: string; ts?: string }
   | { k: "result"; id: string; text: string; error: boolean }
   | { k: "queued"; text: string; ts?: string }
@@ -258,7 +264,7 @@ export function recentSessions(limit = 25): Recent[] {
         const path = join(dir, f);
         try {
           const st = statSync(path);
-          if (st.size < 2000) continue;
+          if (st.size < 2000 || !isSessionId(f.slice(0, -6))) continue;
           all.push({ sessionId: f.slice(0, -6), cwd: "", title: null, mtime: st.mtimeMs, path });
         } catch {}
       }
