@@ -142,6 +142,13 @@ Don't expose these ports to the internet. A signed-in phone controls your sessio
    within 10 minutes**; run `agents-away pair` again for another phone or address. Then use the browser's
    **Install app / Add to Home Screen** and turn on notifications in the app.
 
+The QR codes point at the PC's LAN address. To pair over a VPN or another interface, name it:
+`agents-away pair wg0` (or `tailscale0`, or the IP). The links for every address are printed either way.
+The server listens on all interfaces, but the phone only accepts an address the HTTPS certificate
+includes: the private IPv4 addresses the PC had when the certificate was made. If an interface came up
+later (a new VPN), `agents-away pair` says so; run `bin/agents-away-certs && systemctl --user restart
+agents-away` to add it.
+
 The phone stays signed in as long as you keep using it. After **30 days without opening Agents Away** it's
 signed out and needs a new pairing link. Change that period (1 day to 1 year) and see or remove
 signed-in devices in the app under **⚙ → Sign-in**.
@@ -222,7 +229,7 @@ it there. Not yet supported: search.
 
 | Command | |
 |---|---|
-| `agents-away pair` | Pairing QR codes / links for a new phone |
+| `agents-away pair [interface\|ip]` | Pairing QR codes / links for a new phone (QR for the LAN, or e.g. `wg0`) |
 | `agents-away status` | Server status and current sessions |
 | `agents-away attach` / `agents-away a` | Attach this terminal to a Agents Away tmux session |
 | `agents-away review …` / `agents-away notify …` | See above |
