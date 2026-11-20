@@ -640,3 +640,29 @@ mark { background: color-mix(in oklab, var(--accent) 30%, transparent); color: v
 .subbar.compact .seg button:not(.on) { padding: 6px 9px; }
 .subbar.icons .seg button span { display: none; }
 .subbar.icons .seg button { padding: 6px 9px; }
+
+/* OpenCode question forms (dock card), recent models, session terminal */
+.oc-form { max-height: 58vh; overflow: auto; overscroll-behavior: contain; }
+.oc-form .ff { margin-top: 10px; }
+.oc-form .ff-t { font-size: 13.5px; font-weight: 650; color: var(--ink); }
+.oc-form .ff-t .req { color: var(--bad); }
+.oc-form .ff-d { font-size: 13px; color: var(--ink-2); margin-top: 2px; }
+.oc-form .opts { margin-top: 6px; }
+.oc-form .opts .btn .ol { display: flex; flex-direction: column; min-width: 0; }
+.oc-form .opts .btn small { font-size: 12.5px; font-weight: 450; color: var(--ink-3); }
+.oc-form .opts .btn.primary small { color: inherit; opacity: .8; }
+.oc-form .chips { margin-top: 6px; }
+.oc-form textarea, .oc-form input {
+  width: 100%; margin-top: 6px; border: 1px solid var(--line-2); background: var(--bg); color: var(--ink); border-radius: 12px;
+  padding: 10px 12px; font: 16px var(--font); outline: none; resize: vertical; min-width: 0;
+}
+.oc-form textarea:focus, .oc-form input:focus { border-color: var(--accent); }
+.oc-form .ff-other { display: flex; gap: 6px; align-items: center; }
+.oc-form .ff-other .btn { margin-top: 6px; flex: none; }
+.oc-form .ff-actions { display: flex; gap: 8px; margin-top: 12px; }
+.oc-form .ff-actions .btn.primary { flex: 1; }
+.oc-form .ff-actions .btn.ghost { margin-left: auto; }
+.oc-recent { margin: 2px 0 4px; align-items: center; }
+.oc-recent > .muted { font-size: 12px; font-weight: 600; margin-right: 2px; }
+.oc-recent button { padding: 5px 10px; font-size: 13px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.term-empty { margin: 16px 8px; background: var(--card); }
