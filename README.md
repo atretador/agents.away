@@ -11,6 +11,18 @@ push notifications, which travel end-to-end encrypted through your phone browser
 
 It's a web app (PWA) that you add to your home screen, not an app store download.
 
+<p align="center">
+  <img src="docs/screenshots/home.png" width="250" alt="Sessions list: what needs you, what's working, pending reviews">
+  <img src="docs/screenshots/permission.png" width="250" alt="A session asking for permission, answered with one tap">
+  <img src="docs/screenshots/chat.png" width="250" alt="Live chat with a queued message and a Send now button">
+</p>
+<p align="center">
+  <img src="docs/screenshots/changes.png" width="250" alt="Changes tab: the git diff of the session's repo">
+  <img src="docs/screenshots/new-session.png" width="250" alt="Start a session with model, effort and permission mode">
+  <img src="docs/screenshots/review.png" width="250" alt="Image review: approve, request changes or reject">
+</p>
+<p align="center"><sub>Screenshots use made-up demo data (<code>tools/demo/server.ts</code>).</sub></p>
+
 > [!WARNING]
 > **Agents Away is meant for a trusted private network: your home LAN or your own VPN. Securing that
 > network is up to you.**

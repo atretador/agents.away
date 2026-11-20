@@ -80,6 +80,11 @@ systemctl --user stop agents-away && bun src/server.ts
   `agents-away pair` (`/pair?t=…`); for curl, open one with `-c jar` and reuse the jar with `-b jar`
   (plus `--cacert ~/.config/agents-away/certs/ca.crt` and the `x-away: 1` header on POSTs). Remove test
   devices afterwards (⚙ → Sign-in, or `POST /api/devices/:id/signout`).
+- **Demo mode:** `bun tools/demo/server.ts` serves the real `public/` app on http://localhost:7450 with
+  made-up sessions, chats, a diff and reviews (no real data, actions are no-ops). Use it for UI work and
+  for the README screenshots: with it running, `bun add --no-save playwright-core` then
+  `CHROME=<chromium path> bun tools/screenshots.ts` rewrites `docs/screenshots/*.png`. Update the demo
+  data when a feature should appear in the screenshots.
 - The client reloads itself after a server restart (build id), so a restart is all a phone needs.
 - POST endpoints require the `x-away: 1` header (CSRF guard). Local API calls need `x-away-token`.
 - Don't break running sessions: restarting the service must never kill the `agents-away` tmux server
