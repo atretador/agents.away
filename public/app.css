@@ -694,3 +694,13 @@ mark { background: color-mix(in oklab, var(--accent) 30%, transparent); color: v
 .oc-recent > .muted { font-size: 12px; font-weight: 600; margin-right: 2px; }
 .oc-recent button { padding: 5px 10px; font-size: 13px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .term-empty { margin: 16px 8px; background: var(--card); }
+/* lightbox gallery */
+.lightbox img { transition: transform .18s ease-out, opacity .18s ease-out; }
+.lightbox .lb-orig[hidden] { display: none; }
+.lightbox .lb-count { position: fixed; top: calc(var(--safe-t) + 20px); left: 50%; transform: translateX(-50%); color: #fff; font: 600 13px var(--mono); background: rgb(255 255 255 / .12); padding: 4px 10px; border-radius: 99px; }
+.lightbox .lb-nav { position: fixed; top: 50%; transform: translateY(-50%); width: 40px; height: 40px; border-radius: 50%; border: 0; display: grid; place-items: center; color: #fff; background: rgb(255 255 255 / .12); }
+.lightbox .lb-nav svg { width: 20px; height: 20px; }
+.lightbox .lb-nav.prev { left: 10px; }
+.lightbox .lb-nav.next { right: 10px; }
+.lightbox .lb-nav.next svg { transform: scaleX(-1); }
+@media (hover: none) { .lightbox .lb-nav { display: none; } }

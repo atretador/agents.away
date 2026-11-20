@@ -1577,7 +1577,8 @@ async function renderReview(id) {
     try { await api(`/api/review/${id}/dismiss`, {}); toast("Dismissed"); await loadState(); }
     catch (e) { toast(e.message, true); }
   });
-  app.querySelectorAll("img[data-full]").forEach((img) => (img.onclick = () => lightbox(img.dataset.full)));
+  const gallery = [...app.querySelectorAll("img[data-full]")].map((x) => x.dataset.full);
+  app.querySelectorAll("img[data-full]").forEach((img) => (img.onclick = () => lightbox(img.dataset.full, gallery)));
   app.querySelectorAll("[data-d]").forEach((b) => (b.onclick = async () => {
     const comment = $("#rcomment").value.trim();
     if (b.dataset.d === "changes" && !comment) { $("#rcomment").focus(); return toast("Say what to change", true); }
@@ -1590,24 +1591,55 @@ async function renderReview(id) {
   }));
 }
 
-/** Full-screen view: a sharp 1600px WebP first, the untouched original one tap away. */
-function lightbox(src) {
+/** Full-screen view: a sharp 1600px WebP first, the untouched original one tap away.
+ *  With a list it's a gallery: swipe (when not zoomed), side arrows or ←/→ to move between images. */
+function lightbox(src, list = [src]) {
   const lb = document.createElement("div");
   lb.className = "lightbox";
-  const resizable = !/\.(gif|svg)(\?|$)/i.test(src) && !/\.(gif|svg)$/i.test(decodeURIComponent(src.split("path=")[1] ?? ""));
-  lb.innerHTML = `<img src="${resizable ? sized(src, 1600) : src}" alt="">
+  let i = Math.max(0, list.indexOf(src));
+  const many = list.length > 1;
+  const resizable = (u) => !/\.(gif|svg)(\?|$)/i.test(u) && !/\.(gif|svg)$/i.test(decodeURIComponent(u.split("path=")[1] ?? ""));
+  lb.innerHTML = `<img alt="">
     <button class="icon-btn" aria-label="Close">${icon("x")}</button>
-    ${resizable ? `<button class="btn lb-orig">Original quality</button>` : ""}`;
-  lb.querySelector(".icon-btn").onclick = () => lb.remove();
-  lb.querySelector(".lb-orig")?.addEventListener("click", (e) => {
-    const b = e.currentTarget;
-    b.textContent = "Loading original…"; b.disabled = true;
-    const img = new Image();
-    img.onload = () => { lb.querySelector("img").src = src; b.remove(); };
-    img.onerror = () => { b.textContent = "Couldn't load original"; };
-    img.src = src;
-  });
-  lb.onclick = (e) => { if (e.target === lb) lb.remove(); };
+    ${many ? `<div class="lb-count"></div><button class="lb-nav prev" aria-label="Previous image">${icon("back")}</button><button class="lb-nav next" aria-label="Next image">${icon("back")}</button>` : ""}
+    <button class="btn lb-orig" hidden>Original quality</button>`;
+  const img = lb.querySelector("img"), orig = lb.querySelector(".lb-orig"), count = lb.querySelector(".lb-count");
+  const show = (dir = 0) => {
+    const u = list[i];
+    img.src = resizable(u) ? sized(u, 1600) : u;
+    orig.hidden = !resizable(u); orig.disabled = false; orig.textContent = "Original quality";
+    if (count) count.textContent = `${i + 1} / ${list.length}`;
+    lb.scrollTo(0, 0);
+    if (dir) { img.style.transition = "none"; img.style.transform = `translateX(${dir * 40}px)`; img.style.opacity = ".3"; requestAnimationFrame(() => { img.style.transition = ""; img.style.transform = ""; img.style.opacity = ""; }); }
+  };
+  const go = (d) => { if (!many) return; i = (i + d + list.length) % list.length; vibrate(6); show(d); };
+  const close = () => { lb.remove(); removeEventListener("keydown", onKey); };
+  const onKey = (e) => { if (e.key === "ArrowRight") go(1); else if (e.key === "ArrowLeft") go(-1); else if (e.key === "Escape") close(); };
+  addEventListener("keydown", onKey);
+  lb.querySelector(".icon-btn").onclick = close;
+  lb.querySelector(".lb-nav.prev")?.addEventListener("click", (e) => { e.stopPropagation(); go(-1); });
+  lb.querySelector(".lb-nav.next")?.addEventListener("click", (e) => { e.stopPropagation(); go(1); });
+  orig.onclick = () => {
+    const u = list[i];
+    orig.textContent = "Loading original…"; orig.disabled = true;
+    const pre = new Image();
+    pre.onload = () => { if (list[i] === u) { img.src = u; orig.hidden = true; } };
+    pre.onerror = () => { orig.textContent = "Couldn't load original"; };
+    pre.src = u;
+  };
+  // Swipe: one finger, mostly sideways, and only when not pinch-zoomed in.
+  let t0 = null;
+  lb.addEventListener("touchstart", (e) => { t0 = e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY, at: Date.now() } : null; }, { passive: true });
+  lb.addEventListener("touchmove", (e) => { if (e.touches.length > 1) t0 = null; }, { passive: true });
+  lb.addEventListener("touchend", (e) => {
+    if (!t0 || !many) return;
+    const zoomed = (visualViewport?.scale ?? 1) > 1.05 || lb.scrollWidth > lb.clientWidth + 2;
+    const dx = e.changedTouches[0].clientX - t0.x, dy = e.changedTouches[0].clientY - t0.y;
+    t0 = null;
+    if (!zoomed && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) go(dx < 0 ? 1 : -1);
+  }, { passive: true });
+  lb.onclick = (e) => { if (e.target === lb) close(); };
+  show();
   document.body.appendChild(lb);
 }
 
