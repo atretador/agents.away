@@ -101,7 +101,11 @@ const sessions = [
       tool: { name: "bash", title: "Run a command", desc: "Install date-fns v5 and list what breaks", code: "npm install date-fns@5 && npm run typecheck" },
     },
   },
-  { ...base, id: "s-docs", name: "cc-docs", title: "Write the v2 migration guide", cwd: "/home/demo/code/docs", home: "~/code/docs", status: "working", activityAt: now, startedAt: now - 8 * min, muted: true },
+  { ...base, id: "s-docs", name: "cc-docs", title: "Write the v2 migration guide", cwd: "/home/demo/code/docs", home: "~/code/docs", status: "working", activityAt: now, startedAt: now - 8 * min, muted: true, waits: [
+      { kind: "agent", id: "a1", label: "Review the migration guide for accuracy", since: Date.now() - 3 * 60_000 },
+      { kind: "agent", id: "a2", label: "Check every code sample compiles", since: Date.now() - 2 * 60_000 - 40_000 },
+      { kind: "shell", id: "bq81kd2xa", label: "Build the docs site", since: Date.now() - 6 * 60_000 },
+    ] },
 ];
 
 // Context-window use and subagent counts (shown in the session header).
@@ -220,6 +224,11 @@ for (const id of ["s-docs"]) chats[id] = [
   { k: "user", text: id === "s-api" ? "Add per-key rate limiting to the public API: 100 requests a minute, with a Retry-After header." : "Draft the v2 migration guide from the changelog.", ts: iso(10) },
   { k: "tool", id: "x1", name: "Read", summary: id === "s-api" ? "src/middleware/index.ts" : "CHANGELOG.md", detail: "{}", ts: iso(9) },
   { k: "result", id: "x1", text: "…", error: false },
+  { k: "text", text: "I'll build the docs site in the background and have two reviewers check the guide while it builds.", ts: iso(6) },
+  { k: "tool", id: "x2", name: "Bash", summary: "Build the docs site", detail: "{}", ts: iso(6) },
+  { k: "result", id: "x2", text: "Command running in background with ID: bq81kd2xa.", error: false },
+  { k: "tool", id: "x3", name: "ScheduleWakeup", summary: "Re-check the link checker's results", detail: "{}", ts: iso(0.5), until: Date.now() + 4 * 60_000 + 32_000 },
+  { k: "tool", id: "x4", name: "Yield", summary: "Waiting for background work", detail: "{}", ts: iso(0.2) },
 ];
 
 // ───────── git changes ─────────

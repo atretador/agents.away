@@ -20,6 +20,8 @@ running on your Linux PC, served over your LAN or VPN.
   content, web fetches' URLs, for Claude Code and OpenCode; one-line summaries in the sessions list and
   notifications.
 - OpenCode: thinking models' reasoning as collapsed, expandable "Thinking" blocks.
+- Waiting, explained: a pending `Yield` lists what it waits for (running subagents and background
+  commands, with how long each has run); `ScheduleWakeup` and `sleep N` show a live countdown.
 - **Stop** button (Esc / interrupt) while the agent works, and **Run in background** (Claude Code's
   Ctrl+B) when a long-running command or subagent can be moved to the background.
 - Terminal tab (live tmux pane, or OpenCode's own terminal), Changes tab (`git diff` of the session's repo).

@@ -600,6 +600,7 @@ function setMode(mode, initial = false) {
 
 function updateSessionChrome() {
   S.syncSend?.();
+  document.querySelectorAll(".waits").forEach((w) => renderWaits(w));
   const s = cur();
   const t = $("#s-title"), sub = $("#s-sub");
   if (!t) return;
@@ -899,6 +900,23 @@ function toolView(t) {
     ${t.clipped ? `<p class="muted tv-more">Longer than shown here: see the Terminal tab.</p>` : ""}
   </div>`;
 }
+// ── waiting: countdowns for timed waits, and what a pending Yield is waiting on ──
+const clock = (ms) => {
+  const t = Math.max(0, Math.round(ms / 1000)), h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60;
+  return h ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
+};
+const countdown = (until) => (until - Date.now() > 0 ? `⏱ ${clock(until - Date.now())}` : "⏱ any moment");
+const elapsed = (since) => { const s = Math.max(0, Math.round((Date.now() - since) / 1000)); return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`; };
+setInterval(() => {
+  document.querySelectorAll(".cd[data-until]").forEach((e) => (e.textContent = countdown(+e.dataset.until)));
+  document.querySelectorAll("[data-since]").forEach((e) => (e.textContent = elapsed(+e.dataset.since)));
+}, 1000);
+function renderWaits(el) {
+  const list = S.sessions.find((x) => x.id === el.dataset.sid)?.waits ?? [];
+  el.innerHTML = list.length
+    ? `<div class="w-h">Waiting for</div>${list.map((w) => `<div class="w-row">${icon(w.kind === "agent" ? "agents" : "term")}<span class="w-l">${esc(w.label)}</span><span class="w-t muted" data-since="${+w.since}">${elapsed(w.since)}</span></div>`).join("")}`
+    : `<div class="w-h">Waiting for a background task or a new message</div>`;
+}
 const OPEN_THINKING = new Set();
 function itemEl(it, st = S.chat) {
   const d = document.createElement("div");
@@ -964,7 +982,16 @@ function itemEl(it, st = S.chat) {
   else if (it.k === "tool") {
     const det = document.createElement("details");
     det.className = "tool"; det.dataset.id = it.id;
-    det.innerHTML = `<summary><span class="st run"></span><span class="tn">${esc(it.name)}</span><span class="ts">${esc(it.summary)}</span></summary><pre>${esc(it.detail)}</pre>`;
+    det.innerHTML = `<summary><span class="st run"></span><span class="tn">${esc(it.name)}</span><span class="ts">${esc(it.summary)}</span>${it.until ? `<span class="cd" data-until="${+it.until}">${countdown(it.until)}</span>` : ""}</summary><pre>${esc(it.detail)}</pre>`;
+    if (it.name === "Yield") {
+      // What it's waiting on: the session's running background work, kept live (renderWaits).
+      const wrap = document.createElement("div"); wrap.className = "tool-wait";
+      const w = document.createElement("div"); w.className = "waits"; w.dataset.sid = st.id;
+      wrap.append(det, w);
+      st.tools.set(it.id, det);
+      renderWaits(w);
+      return wrap;
+    }
     if (it.name === "Read" && /^\/.+\.(png|jpe?g|webp|gif)$/i.test(it.summary)) {
       const wrap = document.createElement("div"); wrap.className = "tool-with-img";
       const img = document.createElement("img"); img.className = "tool-img"; img.loading = "lazy"; img.alt = "";
@@ -985,6 +1012,8 @@ function applyResult(it, st) {
   const det = st.tools.get(it.id);
   if (!det) return;
   const sti = det.querySelector(".st");
+  det.querySelector(".cd")?.remove();
+  det.parentElement?.querySelector(":scope > .waits")?.remove(); // a Yield that has finished waiting
   sti.className = "st " + (it.error ? "err" : "ok");
   sti.innerHTML = icon(it.error ? "x" : "check");
   if (it.text && !det.querySelector("pre.res")) {

@@ -92,7 +92,7 @@ export type Item =
   | { k: "command"; text: string; ts?: string }
   | { k: "text"; text: string; ts?: string }
   | { k: "thinking"; text: string; ts?: string } // a thinking model's reasoning (OpenCode), shown collapsed
-  | { k: "tool"; id: string; name: string; summary: string; detail: string; ts?: string }
+  | { k: "tool"; id: string; name: string; summary: string; detail: string; ts?: string; until?: number } // until: a timed wait ends (ms)
   | { k: "result"; id: string; text: string; error: boolean }
   | { k: "queued"; text: string; ts?: string }
   | { k: "unqueue"; text?: string; ts?: string };
@@ -101,7 +101,19 @@ function clip(s: string, n: number) {
   return s.length > n ? s.slice(0, n) + `\n… (${s.length - n} more chars)` : s;
 }
 
+/** When a timed wait ends: ScheduleWakeup's delay, or a Bash command that is just `sleep N`. */
+function waitUntil(name: string, input: any, ts?: string): number | undefined {
+  const start = ts ? Date.parse(ts) : NaN;
+  if (!Number.isFinite(start)) return undefined;
+  if (name === "ScheduleWakeup" && Number(input?.delaySeconds) > 0) return start + Number(input.delaySeconds) * 1000;
+  const m = name === "Bash" ? String(input?.command ?? "").trim().match(/^sleep\s+(\d+(?:\.\d+)?)([smh]?)$/) : null;
+  if (m) return start + Number(m[1]) * ({ s: 1, m: 60, h: 3600 } as any)[m[2] || "s"] * 1000;
+  return undefined;
+}
+
 function toolSummary(name: string, input: any): string {
+  if (name === "Yield") return "Waiting for background work";
+  if (name === "ScheduleWakeup") return String(input?.reason ?? "Waiting");
   if (!input || typeof input !== "object") return "";
   const pick = input.description || input.command || input.file_path || input.path || input.pattern || input.url || input.query || input.prompt || input.skill || input.subject;
   if (name === "Bash" && input.command) return input.description ? `${input.description}` : String(input.command).split("\n")[0];
@@ -183,7 +195,8 @@ function parseOne(o: any, items: Item[], setTitle: (t: string) => void, sidechai
       for (const b of c) {
         if (b.type === "text" && b.text?.trim()) items.push({ k: "text", text: b.text, ts });
         else if (b.type === "tool_use") {
-          items.push({ k: "tool", id: b.id, name: b.name, summary: toolSummary(b.name, b.input), detail: clip(JSON.stringify(b.input, null, 2), 1500), ts });
+          const until = waitUntil(b.name, b.input, ts);
+          items.push({ k: "tool", id: b.id, name: b.name, summary: toolSummary(b.name, b.input), detail: clip(JSON.stringify(b.input, null, 2), 1500), ts, ...(until ? { until } : {}) });
         }
       }
     }

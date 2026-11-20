@@ -199,3 +199,66 @@ export function agentChat(path: string, opts: { from?: number; before?: number; 
   const t = readTail(path, before, opts.want ?? 70, true);
   return { items: t.items, start: t.start, end };
 }
+
+// ───────── what a session is waiting on (shown under a pending Yield) ─────────
+// Background shell commands: a Bash tool_result that starts "Command running in background with ID: X"
+// (run_in_background), "Command was manually backgrounded by user with ID: X" (Ctrl+B) or "Command did not
+// complete within its …s timeout and was moved to the background (ID: X)"; finished once a <task-notification>
+// for X arrives or TaskStop stopped it. Scanned incrementally like the notifications.
+type Shell = { id: string; label: string; at: number; stopped?: boolean };
+const shellCache = new Map<string, { offset: number; labels: Map<string, string>; shells: Map<string, Shell> }>();
+const BG_RE = /^(?:Command running in background with ID: |Command was manually backgrounded by user with ID: |Command did not complete[^\n]{0,120}?moved to the background \(ID: )([\w-]{5,})/;
+const BG_HINT = /running in background with ID|manually backgrounded by user|moved to the background \(ID|stopped task: /;
+const STOP_RE = /Successfully stopped task: ([\w-]{5,})/;
+function backgroundShells(path: string): Map<string, Shell> {
+  let c = shellCache.get(path);
+  const size = fileSize(path);
+  if (!c || size < c.offset) { c = { offset: 0, labels: new Map(), shells: new Map() }; shellCache.set(path, c); }
+  while (c.offset < size) {
+    const end = Math.min(size, c.offset + 16 * 1024 * 1024);
+    let text = readRange(path, c.offset, end);
+    const nl = text.lastIndexOf("\n");
+    if (nl < 0) { if (end < size) { c.offset = end; continue; } break; }
+    text = text.slice(0, nl + 1);
+    const next = c.offset + Buffer.byteLength(text);
+    for (const line of text.split("\n")) {
+      const isUse = line.includes('"name":"Bash"'), isBg = BG_HINT.test(line);
+      if (!isUse && !isBg) continue;
+      let o: any; try { o = JSON.parse(line); } catch { continue; }
+      const content = o.message?.content;
+      if (!Array.isArray(content) || o.isSidechain) continue;
+      for (const b of content) {
+        if (b.type === "tool_use" && b.name === "Bash") {
+          c.labels.set(b.id, String(b.input?.description || String(b.input?.command ?? "").split("\n")[0]).slice(0, 120));
+          if (c.labels.size > 500) c.labels.delete(c.labels.keys().next().value!);
+        } else if (b.type === "tool_result") {
+          const t = typeof b.content === "string" ? b.content : Array.isArray(b.content) ? b.content.map((x: any) => x?.text ?? "").join(" ") : "";
+          const stop = t.slice(0, 300).match(STOP_RE);
+          if (stop) { const sh = c.shells.get(stop[1]); if (sh) sh.stopped = true; }
+          const m = t.trimStart().slice(0, 300).match(BG_RE);
+          if (m) c.shells.set(m[1], { id: m[1], label: c.labels.get(b.tool_use_id) ?? "Background command", at: Date.parse(o.timestamp) || 0 });
+        }
+      }
+    }
+    c.offset = next;
+  }
+  return c.shells;
+}
+
+export type Wait = { kind: "agent" | "shell"; id: string; label: string; since: number };
+/** Running background work of a live session: subagents and background shell commands. */
+export function waitingOn(transcript: string | null, live: boolean): Wait[] {
+  if (!transcript || !live) return [];
+  const out: Wait[] = listAgents(transcript, live, false).filter((a) => a.status === "running")
+    .map((a) => ({ kind: "agent" as const, id: a.id, label: a.description || a.type, since: a.startedAt }));
+  const shells = backgroundShells(transcript);
+  if (shells.size) {
+    const notes = notifications(transcript);
+    for (const s of shells.values()) {
+      const n = notes.get(s.id);
+      if (s.stopped || (n && n.at >= s.at) || Date.now() - s.at > 24 * 3600_000) continue;
+      out.push({ kind: "shell", id: s.id, label: s.label, since: s.at });
+    }
+  }
+  return out;
+}

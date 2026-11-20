@@ -87,6 +87,11 @@ User-facing docs: [README.md](README.md). This file is for coding agents changin
   forms submit on Enter with no review step.
 - **Hooks:** Claude Code runs `agents-away hook` (stdin JSON) on Notification, Stop, UserPromptSubmit,
   PostToolUse and PreToolUse (all tools). The CLI forwards it to the local API `/hook`. Install with `agents-away hooks install`.
+- **Waiting** (`waitingOn` in subagents.ts): live sessions carry `waits [{kind: agent|shell, label,
+  since}]`: running subagents plus background Bash commands (tool results starting "Command running in
+  background with ID", "Command was manually backgrounded by user with ID", "…moved to the background
+  (ID: …)"), until a `<task-notification>` for that id or a TaskStop. The phone lists them under a pending
+  `Yield`; tool items with `until` (ScheduleWakeup delaySeconds, `sleep N`) get a countdown.
 - **Approval cards** (`src/approval.ts`): PreToolUse/PostToolUse keep each session's started-but-unfinished
   tool calls; `toolForScreen` picks the one whose hint (command start, file name, "proceed" for plans)
   is on the screen and `describeTool` turns it into `prompt.tool {title, path, desc, md, code, diff,

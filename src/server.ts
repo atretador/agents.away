@@ -23,7 +23,7 @@ import { serveImage, variant, prewarm } from "./images";
 import * as OC from "./opencode";
 import * as Auth from "./auth";
 import { getCompactWindow, setCompactWindow } from "./compact";
-import { contextUsage, agentCounts, listAgents, agentTranscript, agentChat, type Context } from "./subagents";
+import { contextUsage, agentCounts, listAgents, agentTranscript, agentChat, waitingOn, type Context, type Wait } from "./subagents";
 
 const ROOT = resolve(import.meta.dir, "..");
 const PUBLIC = join(ROOT, "public");
@@ -68,6 +68,8 @@ type Session = {
   permId?: string;
   /** Claude Code shows "ctrl+b to run in background" for the running command or subagent. */
   canBackground?: boolean;
+  /** Background work still running (subagents, background commands): what a pending Yield waits on. */
+  waits?: Wait[];
   context?: Context | null; // Claude Code: % of the context window in use
   agents?: { total: number; running: number } | null; // Claude Code: subagents spawned by this session
   ask?: Ask | null; // Claude Code: an AskUserQuestion form on screen
@@ -148,6 +150,7 @@ async function refresh() {
       activityAt: tpath ? statSync(tpath).mtimeMs : 0, startedAt: p.startedAt, doneAt: h.doneAt,
       context: contextUsage(tpath), agents: agentCountsFor(p.sessionId, tpath, true), ask,
       canBackground: bg && !prompt && !ask,
+      waits: (() => { const w = waitingOn(tpath, true); return w.length ? w : undefined; })(),
     });
   }
   // Agents Away-socket panes Claude hasn't registered yet (e.g. sitting at the folder-trust prompt).
