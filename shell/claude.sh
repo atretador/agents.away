@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Agents Away wrapper for bash and zsh (source this from ~/.bashrc or ~/.zshrc).
 # Runs interactive Claude Code sessions inside the dedicated "agents-away" tmux socket so the
 # Agents Away phone app can watch and answer them. Bypass once with `command claude …`,
