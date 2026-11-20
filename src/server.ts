@@ -126,7 +126,7 @@ async function refresh() {
       tmux: pane ? { socket: pane.socket, pane: pane.paneId, session: pane.session, attached: pane.attached, cols: pane.width } : null,
       attention: h.attention, prompt, lastInputAt: ttyLastInput(p.tty),
       activityAt: tpath ? statSync(tpath).mtimeMs : 0, startedAt: p.startedAt, doneAt: h.doneAt,
-      context: contextUsage(tpath), agents: agentCounts(tpath, true),
+      context: contextUsage(tpath), agents: agentCountsFor(p.sessionId, tpath, true),
     });
   }
   // Agents Away-socket panes Claude hasn't registered yet (e.g. sitting at the folder-trust prompt).
@@ -175,6 +175,17 @@ function cwdOfTranscript(id: string): string | null {
   const head = readRange(path, 0, 64 * 1024);
   const mm = head.match(/"cwd":"((?:[^"\\]|\\.)*)"/);
   try { return mm ? JSON.parse(`"${mm[1]}"`) : null; } catch { return null; }
+}
+
+/** Subagents minus the ones cleared from the list in this app. */
+function visibleAgents<T extends { id: string }>(sessionId: string, list: T[]) {
+  const hidden = getPref(sessionId).hiddenAgents;
+  return hidden?.length ? list.filter((a) => !hidden.includes(a.id)) : list;
+}
+function agentCountsFor(sessionId: string, tpath: string | null, live: boolean) {
+  if (!getPref(sessionId).hiddenAgents?.length) return agentCounts(tpath, live);
+  const l = visibleAgents(sessionId, listAgents(tpath, live, false));
+  return l.length ? { total: l.length, running: l.filter((a) => a.status === "running").length } : null;
 }
 
 function displayName(s: Session) {
@@ -644,7 +655,25 @@ async function api(req: Request, url: URL, deviceKey: string): Promise<Response>
   // ── subagents (Task/Agent tool sub-sessions) of a Claude Code session ──
   if ((mm = m(/^\/api\/session\/([\w-]+)\/agents$/))) {
     const live = sessions.get(mm[1]);
-    return json({ agents: live?.kind === "opencode" ? [] : listAgents(transcriptPath(mm[1], live?.cwd), !!live) });
+    return json({ agents: live?.kind === "opencode" ? [] : visibleAgents(mm[1], listAgents(transcriptPath(mm[1], live?.cwd), !!live)) });
+  }
+  // "Clear" finished subagents from the list (only hidden in this app; Claude's files are untouched).
+  if ((mm = m(/^\/api\/session\/([\w-]+)\/agents\/(clear|restore)$/)) && req.method === "POST") {
+    const id = mm[1], live = sessions.get(id);
+    const hidden = new Set(getPref(id).hiddenAgents ?? []);
+    let ids: string[] = [];
+    if (mm[2] === "clear") {
+      ids = listAgents(transcriptPath(id, live?.cwd), !!live, false).filter((a) => a.status !== "running" && !hidden.has(a.id)).map((a) => a.id);
+      ids.forEach((x) => hidden.add(x));
+    } else {
+      const b = await body();
+      ids = Array.isArray(b.ids) ? b.ids.map(String) : [...hidden];
+      ids.forEach((x) => hidden.delete(x));
+    }
+    setPref(id, { hiddenAgents: [...hidden].slice(-500) });
+    const s = sessions.get(id);
+    if (s && s.kind !== "opencode") { s.agents = agentCountsFor(id, transcriptPath(id, s.cwd), true); broadcast({ type: "sessions", sessions: publicSessions() }); }
+    return json({ ok: true, ids });
   }
   if ((mm = m(/^\/api\/session\/([\w-]+)\/agent\/([\w-]+)$/))) {
     const live = sessions.get(mm[1]);
@@ -658,7 +687,7 @@ async function api(req: Request, url: URL, deviceKey: string): Promise<Response>
   if ((mm = m(/^\/api\/session\/([\w-]+)\/info$/))) {
     const live = sessions.get(mm[1]);
     const path = transcriptPath(mm[1], live?.cwd);
-    return json({ id: mm[1], live: !!live, cwd: live?.cwd ?? cwdOfTranscript(mm[1]), title: sessionTitle(path), prefs: getPref(mm[1]), context: contextUsage(path), agents: agentCounts(path, !!live) });
+    return json({ id: mm[1], live: !!live, cwd: live?.cwd ?? cwdOfTranscript(mm[1]), title: sessionTitle(path), prefs: getPref(mm[1]), context: contextUsage(path), agents: agentCountsFor(mm[1], path, !!live) });
   }
   if (p === "/api/upload" && req.method === "POST") {
     const fd = await req.formData();

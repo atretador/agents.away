@@ -5,7 +5,7 @@ import { DATA_DIR, CLAUDE_DIR, HOME, readJson, writeJson } from "./config";
 import { sessionTitle } from "./claude";
 
 // ───────── session prefs ─────────
-export type SessionPref = { name?: string; pinned?: boolean; muted?: boolean };
+export type SessionPref = { name?: string; pinned?: boolean; muted?: boolean; hiddenAgents?: string[] };
 const PREFS_FILE = join(DATA_DIR, "session-prefs.json");
 const prefs: Record<string, SessionPref> = readJson(PREFS_FILE, {});
 
@@ -15,6 +15,7 @@ export function getPref(id: string): SessionPref {
 export function setPref(id: string, patch: SessionPref) {
   const p = { ...getPref(id), ...patch };
   if (typeof p.name === "string") p.name = p.name.trim().slice(0, 120) || undefined;
+  if (p.hiddenAgents && !p.hiddenAgents.length) delete p.hiddenAgents;
   for (const k of Object.keys(p) as (keyof SessionPref)[]) if (p[k] === undefined || p[k] === false) delete p[k];
   if (Object.keys(p).length) prefs[id] = p; else delete prefs[id];
   writeJson(PREFS_FILE, prefs);

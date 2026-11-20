@@ -1823,11 +1823,22 @@ function agentRow(sid, a) {
     <div class="s">${esc(a.type)} · <span class="ag-lbl ${a.status}">${AGENT_LABEL[a.status]}</span> · ${agentWhen(a)}</div></div></a>`;
 }
 async function openAgents(id) {
-  const { el } = sheet(`<h3>Subagents</h3><div class="ag-list"><div class="muted" style="padding:20px;text-align:center">Loading…</div></div>`);
+  const { el } = sheet(`<div class="ag-head"><h3>Subagents</h3><button class="btn ghost small" id="ag-clear" hidden>${icon("broom")} Clear finished</button></div><div class="ag-list"><div class="muted" style="padding:20px;text-align:center">Loading…</div></div>`);
   const box = el.querySelector(".ag-list");
+  const clearBtn = el.querySelector("#ag-clear");
+  clearBtn.onclick = async () => {
+    clearBtn.disabled = true;
+    try {
+      const { ids } = await api(`/api/session/${id}/agents/clear`, {});
+      vibrate(12); await load();
+      toast(`Cleared ${ids.length}`, false, ids.length ? { label: "Undo", run: async () => { await api(`/api/session/${id}/agents/restore`, { ids }); if (el.isConnected) load(); } } : null);
+    } catch (e) { toast(e.message, true); }
+    clearBtn.disabled = false;
+  };
   const load = async () => {
     try {
       const { agents } = await api(`/api/session/${id}/agents`);
+      clearBtn.hidden = !agents.some((a) => a.status !== "running");
       // Running ones first, then newest first.
       const list = [...agents].reverse().sort((a, b) => (b.status === "running") - (a.status === "running"));
       box.innerHTML = list.length ? list.map((a) => agentRow(id, a)).join("") : `<div class="muted" style="padding:20px;text-align:center">No subagents</div>`;

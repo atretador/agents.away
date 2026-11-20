@@ -642,3 +642,7 @@ mark { background: color-mix(in oklab, var(--accent) 30%, transparent); color: v
 .subbar.icons .seg button { padding: 6px 9px; }
 .composer .send.stop { background: var(--bad); color: #fff; opacity: 1; }
 .composer .send.stop svg { width: 16px; height: 16px; }
+.ag-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.ag-head h3 { margin-bottom: 0; }
+.ag-head .btn svg { width: 15px; height: 15px; }
+.ag-head .btn[hidden] { display: none; }
