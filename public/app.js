@@ -1638,6 +1638,13 @@ function deviceName(ua = "") {
   return br ? `${os} · ${br}` : os;
 }
 
+/** The accent a theme will actually show: the chosen swatch (its light or dark shade), else the theme's own. */
+function themeAccent(key) {
+  const t = THEMES.find(([k]) => k === key);
+  const lightTheme = key === "light" || key === "claude-light";
+  return ACCENTS[prefs.accent] ? ACCENTS[prefs.accent][lightTheme ? 0 : 1] : t?.[4];
+}
+
 async function openSettings() {
   const ps = await pushStatus();
   const st = S.settings;
@@ -1651,7 +1658,7 @@ async function openSettings() {
     <button class="btn block" id="test">${icon("bell")} Send test notification</button>
     <h3 style="margin-top:26px">Appearance</h3>
     <div class="set-label">Theme</div>
-    <div class="theme-grid" id="themes">${THEMES.map(([k, l, bg, card, acc]) => `<button data-theme="${k}" class="${prefs.theme === k ? "on" : ""}"><span class="theme-prev" style="background:${bg}">${card ? `<i></i><i style="background:${card}"><b style="background:${acc}"></b></i>` : ""}</span>${l}</button>`).join("")}</div>
+    <div class="theme-grid" id="themes">${THEMES.map(([k, l, bg, card]) => `<button data-theme="${k}" class="${prefs.theme === k ? "on" : ""}"><span class="theme-prev" style="background:${bg}">${card ? `<i></i><i style="background:${card}"><b data-dot="${k}" style="background:${themeAccent(k)}"></b></i>` : ""}</span>${l}</button>`).join("")}</div>
     <div class="set-label">Accent</div>
     <div class="swatches"><button class="swatch auto ${prefs.accent === "auto" ? "on" : ""}" data-acc="auto" aria-label="Theme's own accent" title="The theme's own accent" style="background:conic-gradient(#e8794c,#6ea8fe,#fab283,#e8794c)">A</button>${Object.entries(ACCENTS).map(([k, [l, d]]) => `<button class="swatch ${prefs.accent === k ? "on" : ""}" data-acc="${k}" aria-label="${k}" style="background:linear-gradient(135deg, ${l} 50%, ${d} 50%)"></button>`).join("")}</div>
     <div class="set-label">App size</div>
@@ -1703,6 +1710,7 @@ async function openSettings() {
   }));
   el.querySelectorAll("[data-acc]").forEach((b) => (b.onclick = () => {
     prefs.accent = b.dataset.acc; savePrefs(); applyPrefs();
+    el.querySelectorAll("[data-dot]").forEach((d) => (d.style.background = themeAccent(d.dataset.dot)));
     el.querySelectorAll("[data-acc]").forEach((x) => x.classList.toggle("on", x === b));
   }));
   const sc = el.querySelector("#scale");
