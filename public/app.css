@@ -640,3 +640,5 @@ mark { background: color-mix(in oklab, var(--accent) 30%, transparent); color: v
 .subbar.compact .seg button:not(.on) { padding: 6px 9px; }
 .subbar.icons .seg button span { display: none; }
 .subbar.icons .seg button { padding: 6px 9px; }
+.composer .send.stop { background: var(--bad); color: #fff; opacity: 1; }
+.composer .send.stop svg { width: 16px; height: 16px; }
