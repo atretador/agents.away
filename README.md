@@ -280,6 +280,8 @@ at the top). Within that assumption:
   If your LAN isn't trustworthy (shared flat, office, public Wi-Fi), reach Agents Away over a VPN only
   and restrict the ports to the VPN interface in your firewall.
 
+Found a vulnerability? Please report it privately, not in a public issue: see [SECURITY.md](SECURITY.md).
+
 ## How it works
 
 Claude Code writes a small status file per running session (`~/.claude/sessions/<pid>.json`) and a
