@@ -52,6 +52,7 @@ const browser = await chromium.launch({ executablePath: findChrome() });
 async function phone(theme: "dark" | "light", appPrefs: Record<string, unknown> = {}) {
   const ctx = await browser.newContext({
     viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, colorScheme: theme,
+    locale: "en-US", // the app follows the browser's language; README shots stay English
   });
   // Pretend notifications are on (the demo has no push service) so the "Get notified" banner stays away.
   await ctx.addInitScript((prefs: Record<string, unknown>) => {
