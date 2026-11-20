@@ -157,7 +157,7 @@ const S = {
 };
 
 // ───────── websocket ─────────
-let ws, wsRetry = 0, pingT, swError = null;
+let ws, wsRetry = 0, pingT, swError = null, lastMsgAt = 0;
 function connect() {
   ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
   ws.onopen = () => {
@@ -171,7 +171,22 @@ function connect() {
     S.connected = false; updateConn(); clearInterval(pingT);
     setTimeout(connect, Math.min(8000, 400 * 2 ** wsRetry++));
   };
-  ws.onmessage = (e) => onMsg(JSON.parse(e.data));
+  ws.onmessage = (e) => { lastMsgAt = Date.now(); onMsg(JSON.parse(e.data)); };
+}
+/** After the phone sleeps, the socket can be dead while still looking open: nothing arrives and no close
+ *  event fires for minutes. Ping it; if the server doesn't answer, drop it and connect afresh (which also
+ *  re-sends the sessions and resumes the open chat). */
+function checkSocket() {
+  if (ws?.readyState !== 1) return;
+  const sent = Date.now(), sock = ws;
+  send({ type: "ping" });
+  setTimeout(() => {
+    if (ws !== sock || lastMsgAt >= sent || sock.readyState !== 1) return;
+    sock.onclose = sock.onmessage = null;
+    try { sock.close(); } catch {}
+    clearInterval(pingT); S.connected = false; updateConn();
+    connect();
+  }, 3000);
 }
 const send = (m) => ws?.readyState === 1 && ws.send(JSON.stringify(m));
 function updateConn() { document.querySelectorAll(".conn").forEach((c) => c.classList.toggle("off", !S.connected)); }
@@ -179,7 +194,7 @@ function updateConn() { document.querySelectorAll(".conn").forEach((c) => c.clas
 document.addEventListener("visibilitychange", () => {
   const v = document.visibilityState === "visible";
   send({ type: "visible", visible: v });
-  if (v) { loadState(); if (S.view?.kind === "session") watch(S.view.id); }
+  if (v) { loadState(); checkSocket(); if (S.view?.kind === "session") watch(S.view.id); }
 });
 
 let myBuild = null;
@@ -237,7 +252,10 @@ async function loadState() {
     Object.assign(S, { sessions: j.sessions, reviews: j.reviews, settings: j.settings, push: j.push, host: j.host, version: j.version });
     if (S.view?.kind === "home") renderHome();
     if (S.view?.kind === "review") renderReview(S.view.id);
-    if (S.view?.kind === "session") renderAlert(S.view.id);
+    // The socket may have missed changes (phone asleep): redraw the open session from this fresh state,
+    // not just its badge, or a question asked meanwhile has no card.
+    if (S.view?.kind === "session") updateSessionChrome();
+    if (S.view?.kind === "agent") updateAgentChrome();
   } catch (e) {
     if (/not paired/.test(e.message)) location.reload();
   }
