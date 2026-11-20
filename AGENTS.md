@@ -30,6 +30,7 @@ User-facing docs: [README.md](README.md). This file is for coding agents changin
 | `src/reviews.ts` | Image reviews: storage, long-poll waiters |
 | `src/images.ts` | WebP variants (360/800/1600) with an on-disk cache |
 | `src/extras.ts` | Per-session prefs (name/pin/mute), git changes, transcript search (ripgrep) |
+| `src/subagents.ts` | Context-window % (tail of the transcript) and subagents: `<project>/<sessionId>/subagents/agent-<id>.jsonl` + `.meta.json`, status from the meta file and the parent's `<task-notification>`s |
 | `src/auth.ts` | Phone sign-in: one-time pairing codes (10 min), per-device sessions with sliding expiry (`settings.signInDays`), device list / sign-out |
 | `src/push.ts` | Web Push subscriptions and sending |
 | `src/config.ts` | Paths, ports, config/secrets, settings defaults |
@@ -44,6 +45,10 @@ User-facing docs: [README.md](README.md). This file is for coding agents changin
 
 - **Session model:** each Claude session is `{id, status: working|attention|idle, tmux?: {socket, pane}, …}`.
   `canReply` is true only when the session is matched to a tmux pane (or it's OpenCode).
+- **Context % and subagents:** live Claude sessions carry `context {pct, tokens, size, model}` and
+  `agents {total, running}` (`/api/session/:id/info` too for past ones). Subagents are never sessions of
+  their own; `/api/session/:id/agents` lists them, `/api/session/:id/agent/:aid?from|before` pages a
+  subagent's chat (parsed with `sidechain = true`), shown read-only at `#/a/<sessionId>/<agentId>`.
 - **Transcript parsing** (`parseLines`): only lines starting with `{"parentUuid"` plus queue-operation
   and ai-title lines are parsed. Every item carries its byte offset `o`, so the client can resume and
   page backwards (`older`). Keep results clipped (`1500` chars) because payload size is what makes

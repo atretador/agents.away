@@ -120,7 +120,7 @@ function userText(s: string): Item | null {
 export type Parsed = { items: Item[]; title?: string };
 
 /** Parse transcript lines. With `base` (byte offset of `text`), every item gets `o` = its line's offset. */
-export function parseLines(text: string, base?: number): Parsed {
+export function parseLines(text: string, base?: number, sidechain = false): Parsed {
   const items: Item[] = [];
   let title: string | undefined;
   let off = base ?? 0;
@@ -134,15 +134,15 @@ export function parseLines(text: string, base?: number): Parsed {
     let o: any;
     try { o = JSON.parse(line); } catch { continue; }
     const n0 = items.length;
-    parseOne(o, items, (t) => (title = t));
+    parseOne(o, items, (t) => (title = t), sidechain);
     if (base !== undefined) for (let i = n0; i < items.length; i++) (items[i] as any).o = lineOff;
   }
   return { items, title };
 }
 
-function parseOne(o: any, items: Item[], setTitle: (t: string) => void) {
+function parseOne(o: any, items: Item[], setTitle: (t: string) => void, sidechain = false) {
     if (o.type === "ai-title" && o.aiTitle) { setTitle(o.aiTitle); return; }
-    if (o.isSidechain) return;
+    if (o.isSidechain && !sidechain) return; // subagent lines; their own transcripts parse with sidechain=true
     const ts = o.timestamp;
     if (o.type === "queue-operation") {
       const c = typeof o.content === "string" ? o.content : "";
@@ -184,7 +184,7 @@ function parseOne(o: any, items: Item[], setTitle: (t: string) => void) {
 }
 
 /** Read backwards from `before` until we have at least `want` items (or hit the start). */
-export function readTail(path: string, before: number, want = 120): { items: Item[]; start: number; title?: string } {
+export function readTail(path: string, before: number, want = 120, sidechain = false): { items: Item[]; start: number; title?: string } {
   let start = before;
   let chunk = 512 * 1024;
   let parsed: Parsed = { items: [] };
@@ -197,7 +197,7 @@ export function readTail(path: string, before: number, want = 120): { items: Ite
       start += Buffer.byteLength(text.slice(0, nl + 1));
       text = text.slice(nl + 1);
     }
-    parsed = parseLines(text, start);
+    parsed = parseLines(text, start, sidechain);
     if (parsed.items.length >= want || chunk >= 32 * 1024 * 1024) break;
     chunk *= 4;
   }

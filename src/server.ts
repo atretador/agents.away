@@ -18,6 +18,7 @@ import { getPref, setPref, gitChanges, localImage, search } from "./extras";
 import { serveImage, variant, prewarm } from "./images";
 import * as OC from "./opencode";
 import * as Auth from "./auth";
+import { contextUsage, agentCounts, listAgents, agentTranscript, agentChat, type Context } from "./subagents";
 
 const ROOT = resolve(import.meta.dir, "..");
 const PUBLIC = join(ROOT, "public");
@@ -59,6 +60,8 @@ type Session = {
   agentName?: string;
   modelName?: string;
   permId?: string;
+  context?: Context | null; // Claude Code: % of the context window in use
+  agents?: { total: number; running: number } | null; // Claude Code: subagents spawned by this session
 };
 
 const sessions = new Map<string, Session>();
@@ -123,6 +126,7 @@ async function refresh() {
       tmux: pane ? { socket: pane.socket, pane: pane.paneId, session: pane.session, attached: pane.attached, cols: pane.width } : null,
       attention: h.attention, prompt, lastInputAt: ttyLastInput(p.tty),
       activityAt: tpath ? statSync(tpath).mtimeMs : 0, startedAt: p.startedAt, doneAt: h.doneAt,
+      context: contextUsage(tpath), agents: agentCounts(tpath, true),
     });
   }
   // Agents Away-socket panes Claude hasn't registered yet (e.g. sitting at the folder-trust prompt).
@@ -609,10 +613,24 @@ async function api(req: Request, url: URL, deviceKey: string): Promise<Response>
   if (p === "/api/search") {
     return json({ results: await search(url.searchParams.get("q") ?? "") });
   }
+  // ── subagents (Task/Agent tool sub-sessions) of a Claude Code session ──
+  if ((mm = m(/^\/api\/session\/([\w-]+)\/agents$/))) {
+    const live = sessions.get(mm[1]);
+    return json({ agents: live?.kind === "opencode" ? [] : listAgents(transcriptPath(mm[1], live?.cwd), !!live) });
+  }
+  if ((mm = m(/^\/api\/session\/([\w-]+)\/agent\/([\w-]+)$/))) {
+    const live = sessions.get(mm[1]);
+    const tpath = transcriptPath(mm[1], live?.cwd);
+    const path = agentTranscript(tpath, mm[2]);
+    if (!path) return err("Subagent transcript not found", 404);
+    const agent = listAgents(tpath, !!live).find((a) => a.id === mm![2]) ?? null;
+    const q = (k: string) => Number(url.searchParams.get(k)) || 0;
+    return json({ agent, ...agentChat(path, { from: q("from"), before: q("before"), want: q("before") ? 100 : INITIAL_ITEMS }) });
+  }
   if ((mm = m(/^\/api\/session\/([\w-]+)\/info$/))) {
     const live = sessions.get(mm[1]);
     const path = transcriptPath(mm[1], live?.cwd);
-    return json({ id: mm[1], live: !!live, cwd: live?.cwd ?? cwdOfTranscript(mm[1]), title: sessionTitle(path), prefs: getPref(mm[1]) });
+    return json({ id: mm[1], live: !!live, cwd: live?.cwd ?? cwdOfTranscript(mm[1]), title: sessionTitle(path), prefs: getPref(mm[1]), context: contextUsage(path), agents: agentCounts(path, !!live) });
   }
   if (p === "/api/upload" && req.method === "POST") {
     const fd = await req.formData();

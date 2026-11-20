@@ -165,6 +165,7 @@ function onMsg(m) {
     S.sessions = m.sessions;
     if (S.view?.kind === "home") renderHome();
     if (S.view?.kind === "session") updateSessionChrome();
+    if (S.view?.kind === "agent") updateAgentChrome();
   } else if (m.type === "reviews") {
     loadState();
   } else if (m.type === "chat") {
@@ -258,6 +259,7 @@ function route() {
   saveChatScroll();
   if (S.view?.kind === "session" && !(kind === "s" && id === S.view.id)) send({ type: "watch", id: null });
   if (kind === "s" && id) { S.view = { kind: "session", id }; renderSession(id); }
+  else if (kind === "a" && id && h.split("/")[2]) { S.view = { kind: "agent", id, aid: h.split("/")[2] }; renderAgent(id, S.view.aid); }
   else if (kind === "review" && id) { S.view = { kind: "review", id }; renderReview(id); }
   else if (kind === "search") { S.view = { kind: "search" }; renderSearch(); }
   else { S.view = { kind: "home" }; renderHome(); }
@@ -443,6 +445,8 @@ function renderSession(id) {
     <header class="bar">
       <button class="icon-btn" id="back" aria-label="Back">${icon("back")}</button>
       <div class="grow"><div class="bar-title" id="s-title"></div><div class="bar-sub" id="s-sub"></div></div>
+      <button class="hd-ctx" id="ctxbtn" hidden></button>
+      <button class="hd-agents" id="agentsbtn" hidden></button>
       <button class="icon-btn" id="morebtn" aria-label="Session options">${icon("more")}</button>
     </header>
     <div class="subbar">
@@ -460,6 +464,8 @@ function renderSession(id) {
   $("#back").onclick = () => (history.length > 1 ? history.back() : (nav("#/")));
   app.querySelectorAll(".seg button").forEach((b) => (b.onclick = () => setMode(b.dataset.mode)));
   $("#morebtn").onclick = () => openSessionMenu(id);
+  $("#ctxbtn").onclick = () => openContextInfo(id);
+  $("#agentsbtn").onclick = () => openAgents(id);
   $("#alertbtn").onclick = () => openPending(id);
   setupSwipe(id);
   if (S.slideIn) { $("#body").classList.add("slide-in-" + S.slideIn); S.slideIn = null; }
@@ -587,6 +593,7 @@ function updateSessionChrome() {
   sub.innerHTML = `<span class="dot ${s.status}" style="width:7px;height:7px"></span>${STATUS_LABEL[s.status]} · ${s.kind === "opencode" ? `<b class="oc-tag">OpenCode${s.agentName ? " · " + esc(s.agentName) : ""}</b> · ` : ""}${esc(s.home)}`;
   renderDock(s);
   renderTyping(s);
+  renderHeadExtras(s);
   if (prefs.termFit) applyTermSize();
 }
 
@@ -996,6 +1003,7 @@ async function loadEndedInfo(id) {
     if (S.view?.id !== id || cur()) return;
     $("#s-title").textContent = info.prefs?.name || info.title || "Past session";
     $("#s-sub").innerHTML = `Ended · ${esc((info.cwd || "").replace(/^\/home\/[^/]+/, "~"))}`;
+    renderHeadExtras({ kind: "claude", context: info.context, agents: info.agents });
   } catch {}
 }
 
@@ -1617,6 +1625,171 @@ async function openSettings() {
     catch (e) { toast(e.message, true); }
   };
 }
+
+// ───────── header extras: context % and subagents (Claude Code sessions) ─────────
+I.agents = '<circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="19" r="2.5"/><circle cx="19" cy="19" r="2.5"/><path d="M12 7.5v4m0 0-5.2 5.4M12 11.5l5.2 5.4"/>';
+// Same bands as the claude-hud status line (warning 70%, critical 85%).
+const CTX_WARN = 70, CTX_ALERT = 85;
+const ctxLevel = (p) => (p >= CTX_ALERT ? "alert" : p >= CTX_WARN ? "warn" : "");
+const ktok = (n) => (n >= 1e6 ? (n / 1e6).toFixed(n % 1e6 ? 1 : 0) + "M" : n >= 1000 ? Math.round(n / 1000) + "k" : String(n));
+function dur(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return s + "s";
+  const m = Math.floor(s / 60);
+  return m < 10 ? `${m}m ${s % 60}s` : m < 60 ? m + "m" : `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+function ctxRing(p) {
+  const c = 2 * Math.PI * 7;
+  return `<svg viewBox="0 0 18 18" class="ring"><circle cx="9" cy="9" r="7" class="trk"/><circle cx="9" cy="9" r="7" class="val" stroke-dasharray="${(c * Math.min(100, p) / 100).toFixed(1)} ${c.toFixed(1)}"/></svg>`;
+}
+function renderHeadExtras(s) {
+  const cb = $("#ctxbtn"), ab = $("#agentsbtn");
+  if (!cb || !ab) return;
+  const claude = s.kind !== "opencode";
+  const c = claude ? s.context : null;
+  cb.hidden = !c;
+  if (c) {
+    cb.className = "hd-ctx " + ctxLevel(c.pct);
+    cb.innerHTML = `${ctxRing(c.pct)}<span>${c.pct}%</span>`;
+    cb.setAttribute("aria-label", `Context ${c.pct}% used`);
+  }
+  const a = claude ? s.agents : null;
+  ab.hidden = !a?.total;
+  if (a?.total) {
+    ab.className = "hd-agents" + (a.running ? " live" : "");
+    ab.innerHTML = `${icon("agents")}<span class="n">${a.total}</span>${a.running ? `<b class="run">${a.running}</b>` : ""}`;
+    ab.setAttribute("aria-label", `${a.total} subagent${a.total > 1 ? "s" : ""}${a.running ? `, ${a.running} running` : ""}`);
+  }
+}
+function openContextInfo(id) {
+  const c = (S.sessions.find((x) => x.id === id) ?? (S.ended?.id === id ? S.ended : null))?.context;
+  if (!c) return;
+  sheet(`<h3>Context window</h3>
+    <div class="ctx-big ${ctxLevel(c.pct)}"><b>${c.pct}%</b><span>used</span></div>
+    <div class="ctx-bar ${ctxLevel(c.pct)}"><i style="width:${c.pct}%"></i></div>
+    <p class="muted" style="margin:10px 0 0">${ktok(c.tokens)} of ${ktok(c.size)} tokens${c.model ? ` · ${esc(c.model)}` : ""}</p>
+    <p class="muted" style="font-size:13px;margin:8px 0 0">Counted like Claude Code's status line: the input and cached tokens of the latest reply.${c.pct >= CTX_WARN ? " Claude compacts the conversation automatically when it gets full; you can also send <b>/compact</b>." : ""}</p>`);
+}
+
+const AGENT_LABEL = { running: "Running", done: "Done", failed: "Failed", stopped: "Stopped" };
+function agentWhen(a) {
+  const when = ago(a.startedAt) === "now" ? "just now" : ago(a.startedAt) + " ago";
+  return a.status === "running" ? `for ${dur(Date.now() - a.startedAt)}` : `${dur((a.endedAt ?? a.startedAt) - a.startedAt)} · ${when}`;
+}
+function agentRow(sid, a) {
+  return `<a class="list-row ag-row" href="#/a/${esc(sid)}/${esc(a.id)}"${a.depth > 1 ? ` style="padding-left:22px"` : ""}>
+    <span class="ag-st ${a.status}"></span>
+    <div class="grow"><div class="t">${esc(a.description || a.type)}</div>
+    <div class="s">${esc(a.type)} · <span class="ag-lbl ${a.status}">${AGENT_LABEL[a.status]}</span> · ${agentWhen(a)}</div></div></a>`;
+}
+async function openAgents(id) {
+  const { el } = sheet(`<h3>Subagents</h3><div class="ag-list"><div class="muted" style="padding:20px;text-align:center">Loading…</div></div>`);
+  const box = el.querySelector(".ag-list");
+  const load = async () => {
+    try {
+      const { agents } = await api(`/api/session/${id}/agents`);
+      // Running ones first, then newest first.
+      const list = [...agents].reverse().sort((a, b) => (b.status === "running") - (a.status === "running"));
+      box.innerHTML = list.length ? list.map((a) => agentRow(id, a)).join("") : `<div class="muted" style="padding:20px;text-align:center">No subagents</div>`;
+    } catch (e) { box.innerHTML = `<div class="muted" style="padding:20px;text-align:center">${esc(e.message)}</div>`; }
+  };
+  await load();
+  const t = setInterval(() => (el.isConnected ? document.visibilityState === "visible" && load() : clearInterval(t)), 4000);
+}
+
+// Read-only chat of one subagent: #/a/<sessionId>/<agentId>
+let agentPoll = null;
+function renderAgent(sid, aid) {
+  clearTimeout(agentPoll);
+  const st = newChatState("agent:" + aid);
+  st.sid = sid; st.aid = aid; st.agent = null;
+  S.agentChat = st;
+  app.innerHTML = `
+    <div class="top">
+    <header class="bar">
+      <button class="icon-btn" id="back" aria-label="Back">${icon("back")}</button>
+      <div class="grow"><div class="bar-title" id="a-title">Subagent</div><div class="bar-sub" id="a-sub"></div></div>
+    </header>
+    </div>
+    <div id="body" style="flex:1;display:flex;flex-direction:column"></div>
+    <div class="dock"><div class="dock-inner"><div class="watch-only ag-dock"><div style="flex:1;min-width:0">Read-only · subagent of <b id="a-parent"></b></div><button class="btn small" id="a-up">${icon("back")} Session</button></div></div></div>`;
+  $("#back").onclick = () => (history.length > 1 ? history.back() : nav(`#/s/${sid}`));
+  $("#a-up").onclick = () => location.replace(`#/s/${sid}`);
+  st.node.id = "chat";
+  st.node.insertAdjacentHTML("afterbegin", `<div class="muted loading-msg" style="text-align:center;padding:30px">Loading…</div>`);
+  $("#body").appendChild(st.node);
+  updateAgentChrome();
+  agentFetch(st, true);
+}
+function updateAgentChrome() {
+  const st = S.agentChat;
+  if (S.view?.kind !== "agent" || !st || !$("#a-title")) return;
+  const parent = S.sessions.find((x) => x.id === st.sid);
+  $("#a-parent").textContent = parent ? sname(parent) : "a past session";
+  const a = st.agent;
+  if (!a) return;
+  $("#a-title").textContent = a.description || a.type;
+  $("#a-sub").innerHTML = `<span class="ag-st ${a.status}"></span><span class="ag-lbl ${a.status}">${AGENT_LABEL[a.status]}</span> · ${esc(a.type)} · ${agentWhen(a)}`;
+  let ty = st.node.querySelector(".typing");
+  if (a.status === "running") {
+    if (!ty) { ty = document.createElement("div"); ty.className = "typing"; ty.innerHTML = "<i></i><i></i><i></i> Working"; }
+    st.node.appendChild(ty);
+  } else ty?.remove();
+}
+async function agentFetch(st, reset = false) {
+  if (S.agentChat !== st || S.view?.kind !== "agent") return;
+  try {
+    const j = await api(`/api/session/${st.sid}/agent/${st.aid}${reset ? "" : `?from=${st.end}`}`);
+    if (S.agentChat !== st || S.view?.kind !== "agent") return;
+    st.agent = j.agent;
+    const stick = reset || nearBottom();
+    if (reset || j.items.length) renderChatItems(st, j.items, { reset, start: j.start });
+    st.end = j.end;
+    const older = st.node.querySelector(".older");
+    if (older) older.onclick = () => agentOlder(st);
+    updateAgentChrome();
+    if (stick) scrollChatToEnd(true);
+  } catch (e) {
+    if (reset) st.node.innerHTML = `<div class="muted" style="text-align:center;padding:30px">${esc(e.message)}</div>`;
+  }
+  // Follow it live while it runs (paused while the app is in the background).
+  if (!st.agent || st.agent.status === "running") agentPoll = setTimeout(function tick() {
+    if (document.visibilityState === "visible") agentFetch(st); else agentPoll = setTimeout(tick, 2500);
+  }, 2500);
+}
+async function agentOlder(st) {
+  const older = st.node.querySelector(".older");
+  if (!older || st.loadingOlder) return;
+  st.loadingOlder = true; older.textContent = "Loading…";
+  try {
+    const j = await api(`/api/session/${st.sid}/agent/${st.aid}?before=${st.start}`);
+    const h0 = document.documentElement.scrollHeight;
+    const { frag, results } = build(j.items, st);
+    older.after(frag);
+    for (const r of results) applyResult(r, st);
+    st.start = j.start;
+    if (!j.start) older.remove(); else older.textContent = "Show earlier";
+    window.scrollTo(0, scrollY + document.documentElement.scrollHeight - h0);
+  } catch (e) { toast(e.message, true); older.textContent = "Show earlier"; }
+  st.loadingOlder = false;
+}
+// In a session's chat, an opened Agent/Task tool call links to that subagent's own chat.
+document.addEventListener("toggle", async (e) => {
+  const det = e.target;
+  if (!det?.matches?.("#chat details.tool") || !det.open || det.dataset.agentLink || S.view?.kind !== "session") return;
+  if (!/^(Agent|Task)$/.test(det.querySelector(".tn")?.textContent ?? "")) return;
+  det.dataset.agentLink = "1";
+  const sid = S.view.id;
+  try {
+    const { agents } = await api(`/api/session/${sid}/agents`);
+    const a = agents.find((x) => x.toolUseId === det.dataset.id);
+    if (!a) return;
+    const b = document.createElement("a");
+    b.className = "btn small ag-open"; b.href = `#/a/${sid}/${a.id}`;
+    b.innerHTML = `${icon("agents")} Open subagent chat`;
+    det.querySelector("summary").after(b);
+  } catch {}
+}, true);
 
 // ───────── boot ─────────
 history.scrollRestoration = "manual"; // Agents Away restores positions itself; the browser's guess fights it

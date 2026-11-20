@@ -29,6 +29,8 @@ It's a web app (PWA) that you add to your home screen, not an app store download
   away" summary of what happened since you last looked.
 - **Reply** with text, photos or files. Answer menus and permission prompts with one tap. Includes a
   command palette for slash commands and your own quick replies.
+- **Context and subagents:** the session header shows how full the context window is and the
+  subagents it spawned (live running count); open one to read its own chat.
 - **Terminal:** a live view of the session's terminal, with key buttons (Esc, arrows, Ctrl-C…).
 - **Changes:** `git diff` of the session's repo.
 - **Notifications** when a session needs permission or finishes, with **Allow** right in the
