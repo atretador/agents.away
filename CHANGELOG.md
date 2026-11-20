@@ -44,6 +44,8 @@ running on your Linux PC, served over your LAN or VPN.
   without use (1 day – 1 year, default 30 days), paired-device list with sign-out; only hashes of
   sign-ins are stored. HTTPS with a private CA generated on the PC, limited (name constraints) to private
   addresses and the PC's own names; `agents-away pair` prints its fingerprint to compare on the phone.
+- Optional update notifications (off by default): `agents-away updates on` checks GitHub once a day for
+  a newer release and sends one notification that opens its release page; ⚙ shows it too.
 - `agents-away pair <interface|ip>` makes the QR codes for that address (e.g. `wg0` for a VPN) instead of
   the LAN one, and refuses addresses the HTTPS certificate doesn't cover (saying how to add them).
   The local API for hooks and the CLI listens on 127.0.0.1 only.
