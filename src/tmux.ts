@@ -424,3 +424,36 @@ export async function sessionExists(name: string) {
  *  "(ctrl+b to run in background)", in tmux "(ctrl+b ctrl+b (twice) to run in background)". One C-b sent
  *  with send-keys reaches Claude Code directly (no tmux prefix in the way), so that's all it takes. */
 export const canBackground = (screen: string) => /ctrl\+b[^\n]*to run in background/i.test(screen);
+
+// ───────── /btw side answers ─────────
+// Claude Code draws them in a panel at the bottom: a line of ▔, the history of `/btw …` questions, the
+// latest answer indented by 4 (or "· Answering…" while it's being written), and a hint line ending in
+// "Esc to close". Claude Code wraps the answer itself, so wrapped lines are joined back up here.
+export type Btw = { question: string; answer: string; pending: boolean };
+export function detectBtw(screen: string, cols = 80): Btw | null {
+  const lines = screen.replace(/\s+$/, "").split("\n");
+  let top = -1;
+  for (let i = lines.length - 1; i >= 0; i--) if (/^▔{10,}/.test(lines[i].trim())) { top = i; break; }
+  if (top < 0) return null;
+  const body = lines.slice(top + 1);
+  const foot = body.findIndex((l) => /Esc to close\s*$/.test(l));
+  if (foot < 0) return null;
+  const panel = body.slice(0, foot);
+  let qi = -1;
+  for (let i = panel.length - 1; i >= 0; i--) if (/^ {2}\/btw\s/.test(panel[i])) { qi = i; break; }
+  if (qi < 0) return null;
+  const question = panel[qi].trim().replace(/^\/btw\s+/, "");
+  const ans = panel.slice(qi + 1).map((l) => l.replace(/^ {4}/, "").replace(/\s+$/, ""));
+  while (ans.length && !ans[ans.length - 1].trim()) ans.pop();
+  // "· Answering…" with an animated symbol in front (it cycles through several characters).
+  if (ans.length <= 1 && (!ans.length || /^\S?\s*Answering…?$/.test(ans[0].trim()))) return { question, answer: "", pending: true };
+  // Join lines Claude Code wrapped (a line that ran to near the full width continues on the next).
+  const out: string[] = [];
+  for (const l of ans) {
+    const prev = out[out.length - 1];
+    const cont = prev !== undefined && prev.length >= cols - 16 && l.trim() && !/^\s*([-*•]|\d+[.)])\s/.test(l);
+    if (cont) out[out.length - 1] = prev + " " + l.trim();
+    else out.push(l);
+  }
+  return { question, answer: out.join("\n").trim(), pending: !out.join("").trim() };
+}

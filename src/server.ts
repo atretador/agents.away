@@ -7,7 +7,7 @@ import { config, saveConfig, CERT_DIR, PORTS, TMUX_SOCKET, HOME, DATA_DIR, write
 import { mkdirSync } from "node:fs";
 const UPLOAD_DIR = join(DATA_DIR, "uploads");
 mkdirSync(UPLOAD_DIR, { recursive: true });
-import { canBackground } from "./tmux";
+import { canBackground, detectBtw, type Btw } from "./tmux";
 import { tmux, listPanes, capture, detectPrompt, sendKeys, sendText, chooseOption, newSession, sessionExists, type Prompt } from "./tmux";
 import {
   listClaudeProcs, matchPane, ttyLastInput, transcriptPath, readTail, readRange, fileSize, parseLines,
@@ -70,6 +70,8 @@ type Session = {
   permId?: string;
   /** Claude Code shows "ctrl+b to run in background" for the running command or subagent. */
   canBackground?: boolean;
+  /** Claude Code's /btw side-answer panel, while it's on screen. */
+  btw?: Btw | null;
   /** Background work still running (subagents, background commands): what a pending Yield waits on. */
   waits?: Wait[];
   context?: Context | null; // Claude Code: % of the context window in use
@@ -131,10 +133,11 @@ async function refresh() {
     const pane = matchPane(p, panes);
     const tpath = transcriptPath(p.sessionId, p.cwd);
     const h = hs(p.sessionId);
-    let prompt: Prompt | null = null, ask: Ask | null = null, bg = false;
+    let prompt: Prompt | null = null, ask: Ask | null = null, bg = false, btw: Btw | null = null;
     if (pane) {
       const screen = await capture(pane.socket, pane.paneId);
       bg = !!screen && canBackground(screen);
+      btw = screen ? detectBtw(screen, pane.width) : null;
       prompt = screen ? detectPrompt(screen) : null;
       if (screen) ({ ask, prompt } = askState(p.sessionId, tpath, screen, prompt));
       if (prompt && screen) prompt = { ...prompt, tool: toolForScreen(p.sessionId, screen) };
@@ -151,7 +154,7 @@ async function refresh() {
       attention: h.attention, prompt, lastInputAt: ttyLastInput(p.tty),
       activityAt: tpath ? statSync(tpath).mtimeMs : 0, startedAt: p.startedAt, doneAt: h.doneAt,
       context: contextUsage(tpath), agents: agentCountsFor(p.sessionId, tpath, true), ask,
-      canBackground: bg && !prompt && !ask,
+      canBackground: bg && !prompt && !ask, btw,
       waits: (() => { const w = waitingOn(tpath, true); return w.length ? w : undefined; })(),
     });
   }
@@ -666,6 +669,14 @@ async function api(req: Request, url: URL, deviceKey: string): Promise<Response>
       }
     } catch (e: any) { return err(e.message, 502); }
     refreshOpenCode().then(refreshNow);
+    return json({ ok: true });
+  }
+  // Close Claude Code's /btw panel, only if it's still showing: an Esc without it would interrupt Claude.
+  if ((mm = m(/^\/api\/session\/([\w-]+)\/btw\/close$/)) && req.method === "POST") {
+    const s = requireSession(mm[1]);
+    const screen = await capture(s.tmux.socket, s.tmux.pane);
+    if (screen && detectBtw(screen)) await sendKeys(s.tmux.socket, s.tmux.pane, ["Escape"]);
+    setTimeout(refreshNow, 250);
     return json({ ok: true });
   }
   if ((mm = m(/^\/api\/session\/([\w-]+)\/(text|keys|choose|approve)$/)) && req.method === "POST") {

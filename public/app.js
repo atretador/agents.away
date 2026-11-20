@@ -600,6 +600,7 @@ function setMode(mode, initial = false) {
 
 function updateSessionChrome() {
   S.syncSend?.();
+  drawBtw();
   document.querySelectorAll(".waits").forEach((w) => renderWaits(w));
   const s = cur();
   const t = $("#s-title"), sub = $("#s-sub");
@@ -832,7 +833,7 @@ function renderDock(s) {
       // Busy session: show it as queued right away (the transcript can lag while Claude is streaming).
       const live = S.sessions.find((x) => x.id === s.id);
       // /btw is answered at once, beside the current task, and only on Claude Code's screen.
-      if (/^\/btw\s/.test(text)) toast("Asked. The answer shows in the Terminal tab");
+      if (/^\/btw\s/.test(text)) openBtw(s.id, text.replace(/^\/btw\s+/, "").trim());
       else if (live?.status === "working" && S.chat?.id === s.id) {
         const q = queuedEl(text, S.chat, true);
         if (q) { S.chat.queue.appendChild(q); setTimeout(() => q.classList.contains("local") && q.remove(), 120_000); }
@@ -901,6 +902,29 @@ function toolView(t) {
     ${t.fields?.length ? `<dl class="tv-fields">${t.fields.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl>` : ""}
     ${t.clipped ? `<p class="muted tv-more">Longer than shown here: see the Terminal tab.</p>` : ""}
   </div>`;
+}
+// ── /btw: the side answer in a modal (read from Claude Code's panel; closing it closes the panel there too) ──
+function openBtw(sid, question) {
+  const { el, close } = sheet(`<h3>${icon("chat")} By the way</h3><div class="btw-q"></div><div class="btw-a"></div>
+    <p class="muted btw-note">Claude keeps working on its task; this answer isn't added to the conversation.</p>`, {
+    onClose: () => { S.btwView = null; api(`/api/session/${encodeURIComponent(sid)}/btw/close`, {}).catch(() => {}); },
+  });
+  el.classList.add("btw-sheet");
+  el.querySelector(".btw-q").textContent = question;
+  S.btwView = { sid, question, el, close, seen: false, at: Date.now() };
+  drawBtw();
+}
+function drawBtw() {
+  const v = S.btwView;
+  if (!v || !v.el.isConnected) return;
+  const b = S.sessions.find((x) => x.id === v.sid)?.btw;
+  const box = v.el.querySelector(".btw-a");
+  const mine = b && (!v.question || b.question.replace(/\s+/g, " ").startsWith(v.question.replace(/\s+/g, " ").slice(0, 40)));
+  if (mine) v.seen = true;
+  if (mine && !b.pending && b.answer) { box.className = "btw-a msg-text"; box.innerHTML = md(b.answer); }
+  else if (!mine && v.seen) { box.className = "btw-a muted"; box.textContent = box.textContent || "Closed at the PC."; }
+  else if (!mine && Date.now() - v.at > 20_000) { box.className = "btw-a muted"; box.textContent = "The answer didn't show up. It may be in the Terminal tab."; }
+  else { box.className = "btw-a pending"; box.innerHTML = `<span class="typing"><i></i><i></i><i></i> Answering…</span>`; }
 }
 // ── waiting: countdowns for timed waits, and what a pending Yield is waiting on ──
 const clock = (ms) => {
@@ -1465,7 +1489,7 @@ function openSessionMenu(id) {
 // [command, description, dangerous?, takes text?]. Commands that take text go into the message box instead
 // of being sent right away.
 const COMMANDS = [
-  ["/btw", "Ask a side question without interrupting the current task (answer shows in the Terminal tab)", false, true],
+  ["/btw", "Ask a side question without interrupting the current task", false, true],
   ["/compact", "Summarise the conversation to free up context"],
   ["/context", "Show how full the context window is"],
   ["/model", "Switch model"],
@@ -1773,7 +1797,7 @@ function unlockScroll() {
 
 // Bottom sheets: close button, drag-down to dismiss, Back button closes, page behind doesn't scroll.
 const openSheets = [];
-function sheet(html) {
+function sheet(html, { onClose } = {}) {
   const scrim = document.createElement("div"); scrim.className = "scrim";
   const sh = document.createElement("div"); sh.className = "sheet";
   sh.innerHTML = `<div class="sheet-top"><div class="grab"></div><button class="icon-btn sheet-x" aria-label="Close">${icon("x")}</button></div>${html}`;
@@ -1781,6 +1805,7 @@ function sheet(html) {
   const remove = (animate = true) => {
     if (closed) return;
     closed = true;
+    try { onClose?.(); } catch {}
     const i = openSheets.indexOf(entry);
     if (i >= 0) openSheets.splice(i, 1);
     if (!openSheets.length) unlockScroll();

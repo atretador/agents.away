@@ -76,3 +76,14 @@ test("run-in-background hint, in and outside tmux", () => {
   expect(canBackground("     (ctrl+b to run in background)")).toBe(true);
   expect(canBackground("● Running 1 shell command…\n esc to interrupt")).toBe(false);
 });
+
+import { detectBtw } from "../src/tmux";
+test("/btw panel: pending, answered (wrapped lines joined), none", () => {
+  const bar = "▔".repeat(60);
+  const pending = `● done\n${bar}\n  /btw first question\n  /btw what is up?\n    · Answering…\n  ⇧←/→ to browse · x to clear history · Esc to close`;
+  expect(detectBtw(pending, 60)).toEqual({ question: "what is up?", answer: "", pending: true });
+  expect(detectBtw(pending.replace("· Answering", "✽ Answering"), 60)?.pending).toBe(true);
+  const done = `${bar}\n  /btw rivers?\n    1. Danube: At about 2,850 km, it is the second-longest river in\n       Europe.\n    2. Rhine: short.\n  c to copy · f to fork · Esc to close`;
+  expect(detectBtw(done, 72)).toEqual({ question: "rivers?", answer: "1. Danube: At about 2,850 km, it is the second-longest river in Europe.\n2. Rhine: short.", pending: false });
+  expect(detectBtw("❯ \n  ⏵⏵ auto mode on", 80)).toBeNull();
+});

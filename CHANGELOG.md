@@ -20,6 +20,8 @@ running on your Linux PC, served over your LAN or VPN.
   content, web fetches' URLs, for Claude Code and OpenCode; one-line summaries in the sessions list and
   notifications.
 - OpenCode: thinking models' reasoning as collapsed, expandable "Thinking" blocks.
+- `/btw` from the phone: the side answer opens in a modal (read from Claude Code's panel), and closing it
+  closes the panel on the PC too.
 - Waiting, explained: a pending `Yield` lists what it waits for (running subagents and background
   commands, with how long each has run); `ScheduleWakeup` and `sleep N` show a live countdown.
 - **Stop** button (Esc / interrupt) while the agent works, and **Run in background** (Claude Code's
