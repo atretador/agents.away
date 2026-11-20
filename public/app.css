@@ -65,8 +65,9 @@
 :root[data-theme="opencode"] {
   --bg: #0a0a0a; --bg-2: #111111; --card: #141414; --card-2: #1c1c1c; --line: #242424; --line-2: #333333;
   --ink: #eeeeee; --ink-2: #b0b0b0; --ink-3: #808080;
-  --accent: var(--acc-d, #fab283); --accent-ink: #1a120c; --accent-soft: color-mix(in oklab, var(--accent) 16%, var(--card));
-  --work: #5c9cf5; --work-soft: #17233a; --wait: #f5a742; --wait-soft: #33240f; --ok: #7fd88f; --ok-soft: #142a18; --bad: #e06c75; --bad-soft: #351a1d;
+  /* tinted surfaces stay neutral grey (peach mixed into near-black reads as brown) */
+  --accent: var(--acc-d, #fab283); --accent-ink: #1a120c; --accent-soft: #1d1d1d;
+  --work: #5c9cf5; --work-soft: #17233a; --wait: #f5a742; --wait-soft: #1d1d1d; --ok: #7fd88f; --ok-soft: #142a18; --bad: #e06c75; --bad-soft: #351a1d;
   --term-bg: #000000; --term-ink: #eeeeee;
   --shadow: 0 1px 2px rgb(0 0 0 / .4), 0 6px 20px rgb(0 0 0 / .35);
   color-scheme: dark;
