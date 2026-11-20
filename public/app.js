@@ -460,8 +460,6 @@ function renderSession(id) {
     <header class="bar">
       <button class="icon-btn" id="back" aria-label="Back">${icon("back")}</button>
       <div class="grow"><div class="bar-title" id="s-title"></div><div class="bar-sub" id="s-sub"></div></div>
-      <button class="hd-ctx" id="ctxbtn" hidden></button>
-      <button class="hd-agents" id="agentsbtn" hidden></button>
       <button class="icon-btn" id="morebtn" aria-label="Session options">${icon("more")}</button>
     </header>
     <div class="subbar">
@@ -471,7 +469,9 @@ function renderSession(id) {
         <button data-mode="term">${icon("term")}<span>Terminal</span></button>
       </div>
       <button class="alert-btn" id="alertbtn" hidden aria-label="Pending actions"></button>
-      <div class="pager" id="pager"></div>
+      <button class="hd-ctx" id="ctxbtn" hidden></button>
+      <button class="hd-agents" id="agentsbtn" hidden></button>
+      <div class="sub-right"><div class="pager" id="pager"></div><div class="sub-model" id="s-model"></div></div>
     </div>
     </div>
     <div id="body" style="flex:1;display:flex;flex-direction:column"></div>
@@ -538,6 +538,7 @@ function setupSwipe(id) {
 function renderPager(id) {
   const el = $("#pager");
   if (!el) return;
+  requestAnimationFrame(fitSubbar);
   const n = neighbours(id);
   if (n.i < 0 || n.list.length < 2) { el.innerHTML = ""; return; }
   el.innerHTML = n.list.length <= 7
@@ -1045,6 +1046,7 @@ let lastAlertKey = "";
 function renderAlert(id) {
   const b = $("#alertbtn");
   if (!b) return;
+  requestAnimationFrame(fitSubbar);
   const p = pendingFor(id);
   const n = p.here.length + p.otherReviews.length + p.otherSessions.length;
   b.hidden = !n;
@@ -1738,9 +1740,29 @@ function ctxRing(p) {
   const c = 2 * Math.PI * 7;
   return `<svg viewBox="0 0 18 18" class="ring"><circle cx="9" cy="9" r="7" class="trk"/><circle cx="9" cy="9" r="7" class="val" stroke-dasharray="${(c * Math.min(100, p) / 100).toFixed(1)} ${c.toFixed(1)}"/></svg>`;
 }
+/** "claude-opus-5-5" → "Opus 5.5"; OpenCode "provider/model" → model part. */
+function shortModel(m) {
+  if (!m) return "";
+  m = String(m).split("/").pop().replace(/\[.*?\]$/, "");
+  const c = m.match(/^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{6,})?$/);
+  if (c) return `${c[1][0].toUpperCase()}${c[1].slice(1)} ${c[2]}${c[3] ? "." + c[3] : ""}`;
+  return m.length > 18 ? m.slice(0, 17) + "…" : m;
+}
+/** Row 2 has tabs, alert, context and agents: shrink tab labels until it fits. */
+function fitSubbar() {
+  const bar = document.querySelector(".subbar");
+  if (!bar) return;
+  bar.classList.remove("compact", "icons");
+  if (bar.scrollWidth > bar.clientWidth + 1) bar.classList.add("compact");
+  if (bar.scrollWidth > bar.clientWidth + 1) bar.classList.add("icons");
+}
+addEventListener("resize", fitSubbar);
 function renderHeadExtras(s) {
   const cb = $("#ctxbtn"), ab = $("#agentsbtn");
   if (!cb || !ab) return;
+  const md = $("#s-model");
+  if (md) { const name = shortModel(s.context?.model ?? s.modelName); md.textContent = name; md.title = s.context?.model ?? s.modelName ?? ""; }
+  requestAnimationFrame(fitSubbar);
   const claude = s.kind !== "opencode";
   const c = claude ? s.context : null;
   cb.hidden = !c;

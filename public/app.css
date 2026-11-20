@@ -416,7 +416,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .subbar .seg button { display: flex; align-items: center; gap: 6px; padding: 6px 11px; font-size: 13px; font-weight: 600; }
 .subbar .seg button svg { width: 16px; height: 16px; }
 @media (max-width: 380px) { .subbar .seg button span { display: none; } }
-.pager { flex: 1; display: flex; justify-content: flex-end; align-items: center; gap: 5px; font: 600 12px var(--mono); color: var(--ink-3); }
+.pager { display: flex; justify-content: flex-end; align-items: center; gap: 5px; font: 600 12px var(--mono); color: var(--ink-3); }
 .pager i { width: 6px; height: 6px; border-radius: 50%; background: var(--line-2); transition: all .2s; }
 .pager i.waiting { background: color-mix(in oklab, var(--wait) 55%, var(--line-2)); }
 .pager i.on { width: 16px; border-radius: 3px; background: var(--ink-2); }
@@ -629,3 +629,14 @@ mark { background: color-mix(in oklab, var(--accent) 30%, transparent); color: v
 .ag-dock .btn svg { width: 16px; height: 16px; }
 .ag-open { display: inline-flex; align-items: center; gap: 6px; margin: 6px 10px 2px; text-decoration: none; color: var(--accent); }
 .ag-open svg { width: 15px; height: 15px; }
+
+/* row 2: tabs · alert · context · agents · (pager over model name) */
+.subbar { gap: 7px; }
+.sub-right { flex: 1 0 auto; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.sub-model { font: 600 10.5px var(--mono); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; letter-spacing: .02em; }
+.sub-model:empty { display: none; }
+.subbar .hd-ctx, .subbar .hd-agents { height: 30px; }
+.subbar.compact .seg button:not(.on) span { display: none; }
+.subbar.compact .seg button:not(.on) { padding: 6px 9px; }
+.subbar.icons .seg button span { display: none; }
+.subbar.icons .seg button { padding: 6px 9px; }
