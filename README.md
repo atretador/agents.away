@@ -156,9 +156,11 @@ agents-away notify "Title" "Body"     # a plain push
 
 If [OpenCode](https://opencode.ai) is installed, its sessions appear in the app whenever its
 background server is running (`opencode service start`, or just use OpenCode). You can read, reply,
-interrupt and answer permission requests, and start new OpenCode sessions with a model, variant and
-agent of your choice. Not yet supported: answering OpenCode's question forms, search, and the
-terminal tab.
+interrupt, answer permission requests and question forms (or dismiss them), see the context-window
+% and subagents (child sessions, read-only), and start new OpenCode sessions with a model, variant
+and agent of your choice (it defaults to the model you used last; recent models are one tap). The
+Terminal tab shows the session's own OpenCode terminal (or opens one) and the composer types into
+it there. Not yet supported: search.
 
 ## Commands
 

@@ -87,15 +87,23 @@ function ocToSession(o: OC.OcSession): Session {
     context: (perm.resources ?? []).slice(0, 6).map(String),
     options: [{ n: 1, label: "Allow once" }, { n: 2, label: "Always allow" }, { n: 3, label: "Reject" }],
     selected: 1,
-  } : null;
+  } : ocFormPrompt(o.forms[0]);
   const h = hs(o.id);
   return {
-    id: o.id, pid: 0, name: o.title, title: o.title, cwd: o.cwd,
+    id: o.id, pid: 0, name: o.title, title: o.title, cwd: o.cwd, context: o.context, agents: o.agents,
     status: prompt ? "waiting" : o.running ? "working" : "idle",
     tmux: null, attention: null, prompt, lastInputAt: 0, activityAt: o.updated, startedAt: o.created, doneAt: h.doneAt,
     kind: "opencode", agentName: o.agent, modelName: o.model ? o.model.id + (o.model.variant ? ` · ${o.model.variant}` : "") : undefined,
     permId: perm?.id,
   };
+}
+/** An OpenCode question form as the session's prompt: the phone renders `form` (fields/options) as a card. */
+function ocFormPrompt(f: any): (Prompt & { form: unknown }) | null {
+  if (!f) return null;
+  const fields = (f.fields ?? []).filter((x: any) => !x.hidden);
+  const first = fields[0];
+  const question = fields.length === 1 ? (first.description || first.title || f.title) : f.title || "OpenCode has questions";
+  return { question, context: [], options: [], selected: 0, form: { id: f.id, title: f.title, fields } };
 }
 const hookState = new Map<string, { attention: { message: string; at: number } | null; doneAt: number; promptAt: number; lastPushDone: number }>();
 function hs(id: string) {
@@ -347,7 +355,7 @@ OC.subscribe(async (type, data) => {
     if (!top() || !config.settings.notifyOnAttention) return;
     const s = sessions.get(id);
     if (!shouldPush(s)) return;
-    await pushAll({ kind: "attention", sessionId: id, tag: "s-" + id, title: s ? displayName(s) : "OpenCode", body: "OpenCode is asking you a question", url: `/#/s/${id}` });
+    await pushAll({ kind: "attention", sessionId: id, tag: "s-" + id, title: s ? displayName(s) : "OpenCode", body: "Question: " + (ocFormPrompt(data.form)?.question ?? "OpenCode is asking you something"), url: `/#/s/${id}` });
   }
 });
 
@@ -377,7 +385,7 @@ async function deliverReview(r: R.Review) {
 
 // ───────────────────────── websocket ─────────────────────────
 
-type OcWatch = { sigs: string[]; dirty: boolean; lastPoll: number; queue: string; busy: boolean };
+type OcWatch = { sigs: string[]; dirty: boolean; lastPoll: number; queue: string; busy: boolean; termAt?: number; termBusy?: boolean };
 type WsData = { deviceKey?: string; watch: { id: string; chat: boolean; term: boolean; offset: number; lastTerm: string; oc?: OcWatch } | null; visible: boolean };
 
 const isOc = (id: string) => sessions.get(id)?.kind === "opencode" || id.startsWith("ses_");
@@ -404,6 +412,21 @@ async function ocSync(ws: ServerWebSocket<WsData>, id: string, reset: boolean) {
   } finally {
     w.oc.busy = false; w.oc.dirty = false; w.oc.lastPoll = Date.now();
   }
+}
+/** Terminal tab of an OpenCode session: its newest persistent PTY (OpenCode's own terminal panel), ~1×/s. */
+async function ocTermSync(ws: ServerWebSocket<WsData>, id: string) {
+  const w = ws.data.watch;
+  if (!w?.oc || w.oc.termBusy || Date.now() - (w.oc.termAt ?? 0) < 1000) return;
+  w.oc.termBusy = true;
+  try {
+    const t = await OC.terminal(id);
+    const snap = t ? await OC.terminalScreen(t.id) : null;
+    const msg = JSON.stringify({ type: "term", id, screen: snap?.screen ?? "", oc: snap ? { cols: snap.cols, title: snap.title, status: snap.status } : { none: true } });
+    if (ws.data.watch === w && msg !== w.lastTerm) { w.lastTerm = msg; ws.send(msg); }
+  } catch (e: any) {
+    const msg = JSON.stringify({ type: "term", id, screen: "", oc: { none: true, error: e.message } });
+    if (ws.data.watch === w && msg !== w.lastTerm) { w.lastTerm = msg; ws.send(msg); }
+  } finally { w.oc.termBusy = false; w.oc.termAt = Date.now(); }
 }
 const clients = new Set<ServerWebSocket<WsData>>();
 
@@ -498,6 +521,7 @@ async function tickWatchers() {
     }
     if (w.oc) {
       if (w.chat && (w.oc.dirty || Date.now() - w.oc.lastPoll > 4000)) ocSync(ws, w.id, false);
+      if (w.term) ocTermSync(ws, w.id);
       continue;
     }
     if (w.term && s?.tmux) {
@@ -593,6 +617,15 @@ async function api(req: Request, url: URL, deviceKey: string): Promise<Response>
     const s = sessions.get(mm[1])!;
     const b = await body();
     try {
+      if (b.term && (mm[2] === "text" || mm[2] === "keys")) {
+        // Terminal tab: type into the session's OpenCode terminal instead of prompting the agent.
+        const t = await OC.terminal(s.id);
+        if (!t || t.status !== "running") return err("No terminal is open for this session", 409);
+        const data = mm[2] === "text" ? String(b.text ?? "") + (b.submit !== false ? "\r" : "") : (Array.isArray(b.keys) ? b.keys.map((k: unknown) => OC.termKey(String(k))).join("") : "");
+        if (data) await OC.terminalInput(t.id, data);
+        for (const ws of clients) if (ws.data.watch?.id === s.id && ws.data.watch.oc) ws.data.watch.oc.termAt = 0;
+        return json({ ok: true });
+      }
       if (mm[2] === "text") {
         const text = String(b.text ?? "").trim();
         if (!text) return err("empty message");
@@ -670,6 +703,27 @@ async function api(req: Request, url: URL, deviceKey: string): Promise<Response>
     sessions.delete(id);
     broadcast({ type: "sessions", sessions: publicSessions() });
     return json({ ok: true, archived: true });
+  }
+  // ── OpenCode question forms: answer {formID, answer: {key: value}} or dismiss {formID, cancel: true} ──
+  if ((mm = m(/^\/api\/session\/([\w-]+)\/form$/)) && req.method === "POST" && isOc(mm[1])) {
+    const b = await body();
+    const formID = String(b.formID ?? "");
+    if (!/^frm_[\w-]+$/.test(formID)) return err("bad form id");
+    try {
+      if (b.cancel) await OC.cancelForm(mm[1], formID, b.message ? String(b.message).slice(0, 2000) : undefined);
+      else await OC.replyForm(mm[1], formID, b.answer && typeof b.answer === "object" ? b.answer : {});
+    } catch (e: any) { return err(e.message, /settled|not found/i.test(e.message) ? 409 : 502); }
+    await refreshOpenCode(); await refreshNow();
+    return json({ ok: true });
+  }
+  // ── OpenCode terminal: open one for the session (shown in the Terminal tab) ──
+  if ((mm = m(/^\/api\/session\/([\w-]+)\/terminal$/)) && req.method === "POST" && sessions.get(mm[1])?.kind === "opencode") {
+    const s = sessions.get(mm[1])!;
+    const b = await body();
+    try { await OC.createTerminal(s.id, s.cwd, Math.max(40, Math.min(200, Number(b.cols) || 100)), Math.max(10, Math.min(80, Number(b.rows) || 32))); }
+    catch (e: any) { return err(e.message, 502); }
+    for (const ws of clients) if (ws.data.watch?.id === s.id && ws.data.watch.oc) ws.data.watch.oc.termAt = 0;
+    return json({ ok: true });
   }
   // "Send now" for a queued message: Claude Code delivers queued input on Ctrl+X Ctrl+S; OpenCode takes
   // its inbox once the current step stops, so interrupt it.
@@ -750,7 +804,8 @@ async function api(req: Request, url: URL, deviceKey: string): Promise<Response>
   // ── subagents (Task/Agent tool sub-sessions) of a Claude Code session ──
   if ((mm = m(/^\/api\/session\/([\w-]+)\/agents$/))) {
     const live = sessions.get(mm[1]);
-    return json({ agents: live?.kind === "opencode" ? [] : visibleAgents(mm[1], listAgents(transcriptPath(mm[1], live?.cwd), !!live)) });
+    if (isOc(mm[1])) { try { return json({ agents: visibleAgents(mm[1], await OC.listAgents(mm[1])) }); } catch (e: any) { return err(e.message, 502); } }
+    return json({ agents: visibleAgents(mm[1], listAgents(transcriptPath(mm[1], live?.cwd), !!live)) });
   }
   // "Clear" finished subagents from the list (only hidden in this app; Claude's files are untouched).
   if ((mm = m(/^\/api\/session\/([\w-]+)\/agents\/(clear|restore)$/)) && req.method === "POST") {
@@ -758,7 +813,8 @@ async function api(req: Request, url: URL, deviceKey: string): Promise<Response>
     const hidden = new Set(getPref(id).hiddenAgents ?? []);
     let ids: string[] = [];
     if (mm[2] === "clear") {
-      ids = listAgents(transcriptPath(id, live?.cwd), !!live, false).filter((a) => a.status !== "running" && !hidden.has(a.id)).map((a) => a.id);
+      const all: { id: string; status: string }[] = isOc(id) ? await OC.listAgents(id) : listAgents(transcriptPath(id, live?.cwd), !!live, false);
+      ids = all.filter((a) => a.status !== "running" && !hidden.has(a.id)).map((a) => a.id);
       ids.forEach((x) => hidden.add(x));
     } else {
       const b = await body();
@@ -769,6 +825,11 @@ async function api(req: Request, url: URL, deviceKey: string): Promise<Response>
     const s = sessions.get(id);
     if (s && s.kind !== "opencode") { s.agents = agentCountsFor(id, transcriptPath(id, s.cwd), true); broadcast({ type: "sessions", sessions: publicSessions() }); }
     return json({ ok: true, ids });
+  }
+  if ((mm = m(/^\/api\/session\/([\w-]+)\/agent\/([\w-]+)$/)) && isOc(mm[1])) {
+    // OpenCode subagents are child sessions; `from` = items the phone has, `sig` = their hash (else a reset).
+    try { return json(await OC.agentChat(mm[1], mm[2], Number(url.searchParams.get("from")) || 0, url.searchParams.get("sig") ?? "")); }
+    catch (e: any) { return err(e.message, 404); }
   }
   if ((mm = m(/^\/api\/session\/([\w-]+)\/agent\/([\w-]+)$/))) {
     const live = sessions.get(mm[1]);
@@ -797,7 +858,7 @@ async function api(req: Request, url: URL, deviceKey: string): Promise<Response>
     return json({ path, url: `/uploads/${encodeURIComponent(name)}`, type: f.type });
   }
   if (p === "/api/opencode/catalog") {
-    try { return json(await OC.catalog()); } catch (e: any) { return err(e.message, 502); }
+    try { return json({ ...(await OC.catalog()), ...OC.recentModels() }); } catch (e: any) { return err(e.message, 502); }
   }
   if (p === "/api/new" && req.method === "POST") {
     const b = await body();

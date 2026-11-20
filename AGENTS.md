@@ -26,7 +26,7 @@ User-facing docs: [README.md](README.md). This file is for coding agents changin
 | `src/server.ts` | HTTP/WebSocket server: three listeners (HTTPS app :7443, local API on 127.0.0.1:7442, onboarding :7440), session registry, watchers, REST endpoints, push decisions |
 | `src/claude.ts` | Claude Code discovery (`~/.claude/sessions/*.json`), pid→tty→tmux pane matching, transcript JSONL parsing into chat items |
 | `src/tmux.ts` | tmux wrapper: list panes, capture, send keys/text (bracketed paste), prompt/menu detection, new sessions |
-| `src/opencode.ts` | OpenCode HTTP API client (sessions, messages, prompt, permissions, SSE events, model catalog) |
+| `src/opencode.ts` | OpenCode HTTP API client (sessions, messages, prompt, permissions, question forms, context %, child-session subagents, session terminals, SSE events, model catalog + recent models) |
 | `src/reviews.ts` | Image reviews: storage, long-poll waiters |
 | `src/images.ts` | WebP variants (360/800/1600) with an on-disk cache |
 | `src/extras.ts` | Per-session prefs (name/pin/mute), git changes, transcript search (ripgrep) |
@@ -78,7 +78,23 @@ User-facing docs: [README.md](README.md). This file is for coding agents changin
 - **Reviews:** `agents-away review` long-polls `/review/:id/wait`. If it times out, the answer is later
   bracketed-pasted into the session as `[Phone review of "…" (id …)] …`.
 - **OpenCode:** polled every 5 s plus the SSE `/api/event` stream. Chat sync diffs item signatures
-  and sends either the new suffix or a reset.
+  and sends either the new suffix or a reset. Its OpenAPI spec is at `/openapi.json` on its server.
+  - *Question forms* (`question` tool, event `form.created`/`replied`/`cancelled`): pending ones from
+    `GET /api/session/:id/form` become the session's `prompt` with a `form {id, title, fields}`
+    (status `waiting`); the dock renders the fields (string ± options/custom, number/integer, boolean,
+    multiselect, external link, `when` conditions). `POST /api/session/:id/form {formID, answer}` →
+    `…/form/:formID/reply`; `{formID, cancel: true}` → `DELETE …/form/:formID`.
+  - *Context %*: input + cache tokens of the latest assistant message vs the model's `limit.context`
+    from `/api/model`. *Subagents*: child sessions (`GET /api/session?parentID=`), running from
+    `/api/session/active`, linked to the parent's `subagent` tool call via `state.metadata.sessionID`;
+    `/api/session/:id/agent/:childId?from=N&sig=H` resends everything (`reset`) when the hash of the
+    phone's first N items no longer matches.
+  - *Terminal tab*: the session's persistent PTYs (experimental `/api/experimental/session/:id/terminal`,
+    the newest running one). Output = `persistent-pty/:id/snapshot` checkpoint with only SGR kept,
+    ~1×/s while the tab is open; input (`term: true` on `/text` and `/keys`) attaches to
+    `persistent-pty/:id/connect` (WebSocket, Basic auth), sends the bytes and detaches.
+  - *Recent models*: OpenCode's `~/.local/state/opencode/model.json` (`recent`, `variant`), merged with
+    the phone's picks (`prefs.oc.recent`) in the new-session sheet.
 - **Client state:** per-phone prefs in `localStorage` (`away.prefs`, `away.seen`, `away.mode`).
   Bottom sheets go through `sheet()` (it pushes a history entry so Back closes them). Navigate with
   `nav()`, not `location.hash =`, while a sheet may be open.

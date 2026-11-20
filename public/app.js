@@ -214,7 +214,7 @@ function onMsg(m) {
   } else if (m.type === "older" && S.view?.kind === "session" && m.id === S.view.id) {
     prependItems(m.items, m.start);
   } else if (m.type === "term" && S.view?.kind === "session" && m.id === S.view.id) {
-    renderTerm(m.screen);
+    if (m.oc) renderOcTerm(m); else renderTerm(m.screen);
   }
 }
 
@@ -584,6 +584,8 @@ function setMode(mode, initial = false) {
     applyTermSize();
   }
   if (!initial || S.connected) watch(S.view.id);
+  if (!initial && cur()?.kind === "opencode") renderDock(cur());
+  requestAnimationFrame(fitSubbar);
 }
 
 function updateSessionChrome() {
@@ -609,8 +611,6 @@ function updateSessionChrome() {
     return;
   }
   t.textContent = sname(s);
-  $("[data-mode=term]")?.toggleAttribute("hidden", s.kind === "opencode");
-  if (s.kind === "opencode" && S.mode === "term") setMode("chat");
   sub.innerHTML = `<span class="dot ${s.status}" style="width:7px;height:7px"></span>${STATUS_LABEL[s.status]} · ${s.kind === "opencode" ? `<b class="oc-tag">OpenCode${s.agentName ? " · " + esc(s.agentName) : ""}</b> · ` : ""}${esc(s.home)}`;
   renderDock(s);
   renderTyping(s);
@@ -691,12 +691,14 @@ let lastDockKey = "";
 const primaryOpt = (p) => p.options.find((o) => /^yes\b/i.test(o.label))?.n ?? 1;
 function renderDock(s) {
   const dock = $("#dock");
-  const key = JSON.stringify([s.id, s.canReply, s.prompt, s.ask, s.attention?.message, S.keysOpen]);
+  const ocTerm = s.kind === "opencode" && S.mode === "term"; // OpenCode Terminal tab: the composer types into its terminal
+  const key = JSON.stringify([s.id, s.canReply, s.prompt, s.ask, s.attention?.message, S.keysOpen, ocTerm]);
   if (key === lastDockKey && dock.childElementCount) return;
   lastDockKey = key;
   const draft = $("#msg")?.value ?? S.drafts[s.id] ?? "";
   let html = "";
   if (s.ask) html += askCard(s);
+  if (s.prompt?.form) html += ocFormCard(s);
   else if (s.prompt) {
     const p = s.prompt;
     html += `<div class="prompt-card">
@@ -710,7 +712,7 @@ function renderDock(s) {
   if (!s.canReply) {
     html += `<div class="watch-only"><b>Watch-only.</b> This session was started outside tmux, so Agents Away can show it but can't type into it. To reply from here: exit it on the PC and resume it from <b>New session → Resume</b>, or run <code>claude --resume</code> again (new sessions go through tmux automatically).</div>`;
   } else {
-    html += `${S.keysOpen ? `<div class="keys"><button id="palbtn" class="accent-key">${icon("zap")} ${s.kind === "opencode" ? "Quick replies" : "Commands"}</button>${(s.kind === "opencode" ? [["Esc — interrupt", "Escape"]] : [
+    html += `${S.keysOpen ? `<div class="keys"><button id="palbtn" class="accent-key">${icon("zap")} ${s.kind === "opencode" ? "Quick replies" : "Commands"}</button>${(s.kind === "opencode" && !ocTerm ? [["Esc — interrupt", "Escape"]] : [
       ["Esc", "Escape"], ["⏎", "Enter"], ["↑", "Up"], ["↓", "Down"], ["Tab", "Tab"], ["⇧Tab", "BTab"], ["^C", "C-c"], ["^O", "C-o"], ["1", "1"], ["2", "2"], ["3", "3"], ["y", "y"], ["n", "n"],
     ]).map(([l, k]) => `<button data-key="${k}">${l}</button>`).join("")}</div>` : ""}
     <div class="attachments" id="atts"></div>
@@ -718,11 +720,12 @@ function renderDock(s) {
       <button class="icon-btn ${S.keysOpen ? "on" : ""}" id="kbtn" aria-label="Keys">${icon("keys")}</button>
       <button class="icon-btn" id="abtn" aria-label="Attach image or file">${icon("clip")}</button>
       <input type="file" id="afile" accept="image/*,application/pdf,text/*,.md,.json,.log,.csv" multiple hidden>
-      <textarea id="msg" rows="1" placeholder="Message ${s.kind === "opencode" ? "OpenCode" : "Claude"}…" enterkeyhint="send"></textarea>
+      <textarea id="msg" rows="1" placeholder="${ocTerm ? "Type into the terminal…" : `Message ${s.kind === "opencode" ? "OpenCode" : "Claude"}…`}" enterkeyhint="send"></textarea>
       <button class="icon-btn send" id="sendbtn" aria-label="Send" disabled>${icon("send")}</button>
     </div>`;
   }
   dock.innerHTML = html;
+  if (s.prompt?.form) wireOcForm(s, dock);
   dock.querySelectorAll("[data-opt]").forEach((b) => (b.onclick = async () => {
     b.disabled = true; vibrate();
     try { await api(`/api/session/${s.id}/choose`, { n: +b.dataset.opt }); toast("Sent"); }
@@ -732,7 +735,7 @@ function renderDock(s) {
   $("#palbtn") && ($("#palbtn").onclick = () => openPalette(s));
   dock.querySelectorAll("[data-key]").forEach((b) => (b.onclick = async () => {
     vibrate(6);
-    try { await api(`/api/session/${s.id}/keys`, { keys: [b.dataset.key] }); } catch (e) { toast(e.message, true); }
+    try { await api(`/api/session/${s.id}/keys`, { keys: [b.dataset.key], ...(ocTerm ? { term: true } : {}) }); } catch (e) { toast(e.message, true); }
   }));
   const ta = $("#msg");
   if (!ta) return;
@@ -804,7 +807,7 @@ function renderDock(s) {
     }
     sb.disabled = true; vibrate();
     try {
-      await api(`/api/session/${s.id}/text`, { text });
+      await api(`/api/session/${s.id}/text`, { text, ...(ocTerm ? { term: true } : {}) });
       ta.value = ""; delete S.drafts[s.id]; atts.length = 0; drawAtts(); grow();
       // Busy session: show it as queued right away (the transcript can lag while Claude is streaming).
       const live = S.sessions.find((x) => x.id === s.id);
@@ -1054,7 +1057,7 @@ function applyTermSize() {
   const pre = $("#term");
   if (!pre) return;
   let size = prefs.termSize;
-  const cols = cur()?.tmux?.cols;
+  const cols = cur()?.tmux?.cols ?? (cur()?.kind === "opencode" ? S.ocTermCols : 0);
   if (prefs.termFit && cols) {
     if (!charRatio) {
       const m = document.createElement("span");
@@ -1078,6 +1081,140 @@ function toggleWrap() {
   $("#term").classList.toggle("wrap", S.termWrap);
   $("#t-wrap")?.classList.toggle("on", S.termWrap);
   toast(S.termWrap ? "Wrapping long lines" : "Original layout — scroll sideways");
+}
+
+// ───────── OpenCode: Terminal tab = the session's own terminal (OpenCode's persistent PTY) ─────────
+function renderOcTerm(m) {
+  const pre = $("#term");
+  if (!pre) return;
+  const wrap = $("#termwrap");
+  if (m.oc.none) {
+    S.ocTermCols = 0;
+    wrap.querySelector(".term-empty")?.remove();
+    pre.innerHTML = ""; pre.dataset.init = "";
+    wrap.insertAdjacentHTML("afterbegin", `<div class="empty term-empty"><b>No terminal in this session</b>${m.oc.error ? esc(m.oc.error) : "OpenCode sessions can have their own terminal (its terminal panel). Open one here to run commands in the session's folder."}<div style="margin-top:12px"><button class="btn small primary" id="t-open">${icon("term")} Open a terminal</button></div></div>`);
+    $("#t-open").onclick = async (e) => {
+      e.target.disabled = true;
+      try { await api(`/api/session/${S.view.id}/terminal`, { cols: 100, rows: 32 }); toast("Terminal opened"); }
+      catch (err) { toast(err.message, true); e.target.disabled = false; }
+    };
+    return;
+  }
+  wrap.querySelector(".term-empty")?.remove();
+  const resize = S.ocTermCols !== m.oc.cols;
+  S.ocTermCols = m.oc.cols;
+  renderTerm((m.oc.status === "exited" ? "\x1b[2m[terminal exited]\x1b[0m\n" : "") + m.screen);
+  if (resize && prefs.termFit) applyTermSize();
+}
+
+// ───────── OpenCode question forms (the `question` tool): a card in the dock ─────────
+// Field types per OpenCode's Form schema: string (free text, or options + optional custom answer),
+// number/integer, boolean, multiselect (options, min/maxItems, custom), external (a link). `when` hides fields.
+const formDrafts = new Map(); // formId → {key: value}
+function formVisible(f, ans) {
+  return !(f.when ?? []).some((w) => (w.op === "eq") !== (String(ans[w.key] ?? "") === String(w.value)));
+}
+function ocFormDraft(form) {
+  let d = formDrafts.get(form.id);
+  if (!d) {
+    d = {};
+    for (const f of form.fields) if (f.default !== undefined) d[f.key] = Array.isArray(f.default) ? [...f.default] : f.default;
+    formDrafts.set(form.id, d);
+  }
+  return d;
+}
+/** One string field with options and nothing else: tapping an option answers straight away. */
+const oneTap = (form) => form.fields.length === 1 && form.fields[0].type === "string" && form.fields[0].options?.length;
+function ocFormCard(s) {
+  const form = s.prompt.form, ans = ocFormDraft(form), single = oneTap(form);
+  const fieldHtml = (f) => {
+    if (!formVisible(f, ans)) return "";
+    const head = `${form.fields.length > 1 || !single ? `<div class="ff-t">${esc(f.title || f.key)}${f.required ? ` <span class="req">*</span>` : ""}</div>` : ""}${f.description && (form.fields.length > 1 || f.title) && s.prompt.question !== f.description ? `<div class="ff-d">${esc(f.description)}</div>` : ""}`;
+    const v = ans[f.key];
+    let body = "";
+    if (f.type === "string" && f.options?.length) {
+      const other = v !== undefined && v !== "" && !f.options.some((o) => o.value === v);
+      body = `<div class="opts">${f.options.map((o, i) => `<button class="btn ${v === o.value ? "primary" : ""}" data-fk="${esc(f.key)}" data-fv="${esc(o.value)}"><span class="n">${i + 1}</span><span class="ol">${esc(o.label)}${o.description ? `<small>${esc(o.description)}</small>` : ""}</span></button>`).join("")}</div>
+        ${f.custom ? `<div class="ff-other"><input data-fin="${esc(f.key)}" placeholder="Other answer…" value="${other ? esc(v) : ""}" enterkeyhint="send">${single ? `<button class="btn small" data-fsend="${esc(f.key)}">Send</button>` : ""}</div>` : ""}`;
+    } else if (f.type === "string") {
+      body = `<textarea data-fin="${esc(f.key)}" rows="2" placeholder="${esc(f.placeholder ?? "Your answer…")}">${esc(v ?? "")}</textarea>`;
+    } else if (f.type === "number" || f.type === "integer") {
+      body = `<input type="number" inputmode="${f.type === "integer" ? "numeric" : "decimal"}" data-fin="${esc(f.key)}" data-num="${f.type}" value="${esc(v ?? "")}"${typeof f.minimum === "number" ? ` min="${f.minimum}"` : ""}${typeof f.maximum === "number" ? ` max="${f.maximum}"` : ""}>`;
+    } else if (f.type === "boolean") {
+      body = `<div class="chips"><button data-fk="${esc(f.key)}" data-fb="1" class="${v === true ? "on" : ""}">Yes</button><button data-fk="${esc(f.key)}" data-fb="0" class="${v === false ? "on" : ""}">No</button></div>`;
+    } else if (f.type === "multiselect") {
+      const sel = Array.isArray(v) ? v : [];
+      const extra = sel.filter((x) => !f.options.some((o) => o.value === x));
+      body = `<div class="chips">${f.options.map((o) => `<button data-fk="${esc(f.key)}" data-fm="${esc(o.value)}" class="${sel.includes(o.value) ? "on" : ""}" title="${esc(o.description ?? "")}">${esc(o.label)}</button>`).join("")}</div>
+        ${f.custom ? `<div class="ff-other"><input data-fin="${esc(f.key)}" data-multi="1" placeholder="Other (comma-separated)…" value="${esc(extra.join(", "))}"></div>` : ""}`;
+    } else if (f.type === "external") {
+      body = `<a class="btn small" href="${esc(/^https?:/i.test(f.url) ? f.url : "#")}" target="_blank" rel="noopener">Open link</a>`;
+    }
+    return `<div class="ff" data-field="${esc(f.key)}">${head}${body}</div>`;
+  };
+  return `<div class="prompt-card oc-form" data-form="${esc(form.id)}">
+    <div class="q">${icon("alert")}<span>${esc(s.prompt.question)}</span></div>
+    ${form.fields.map(fieldHtml).join("")}
+    <div class="ff-actions">${single ? "" : `<button class="btn primary" data-fsubmit>Send answer</button>`}<button class="btn ghost" data-fcancel>Dismiss</button></div>
+  </div>`;
+}
+function wireOcForm(s, dock) {
+  const card = dock.querySelector(".oc-form");
+  if (!card) return;
+  const form = s.prompt.form, ans = ocFormDraft(form);
+  const fieldOf = (k) => form.fields.find((f) => f.key === k);
+  const redraw = () => { const y = card.scrollTop; card.outerHTML = ocFormCard(s); wireOcForm(s, dock); dock.querySelector(".oc-form").scrollTop = y; };
+  const send = async (answer) => {
+    card.querySelectorAll("button").forEach((b) => (b.disabled = true)); vibrate();
+    try { await api(`/api/session/${s.id}/form`, { formID: form.id, answer }); formDrafts.delete(form.id); toast("Answer sent"); }
+    catch (e) { toast(e.message, true); card.querySelectorAll("button").forEach((b) => (b.disabled = false)); }
+  };
+  // Answer object: only visible fields, values typed as the schema wants.
+  const collect = () => {
+    const out = {};
+    for (const f of form.fields) {
+      if (!formVisible(f, ans) || f.type === "external") continue;
+      const v = ans[f.key];
+      if (v === undefined || v === "" || (Array.isArray(v) && !v.length)) {
+        if (f.required) throw new Error(`Please answer “${f.title || f.description || f.key}”`);
+        continue;
+      }
+      out[f.key] = v;
+    }
+    return out;
+  };
+  card.querySelectorAll("[data-fv]").forEach((b) => (b.onclick = () => {
+    ans[b.dataset.fk] = b.dataset.fv;
+    if (oneTap(form)) send({ [b.dataset.fk]: b.dataset.fv }); else redraw();
+  }));
+  card.querySelectorAll("[data-fb]").forEach((b) => (b.onclick = () => { ans[b.dataset.fk] = b.dataset.fb === "1"; redraw(); }));
+  card.querySelectorAll("[data-fm]").forEach((b) => (b.onclick = () => {
+    const f = fieldOf(b.dataset.fk), cur = new Set(Array.isArray(ans[f.key]) ? ans[f.key] : []);
+    cur.has(b.dataset.fm) ? cur.delete(b.dataset.fm) : cur.add(b.dataset.fm);
+    if (f.maxItems && cur.size > f.maxItems) return toast(`Pick at most ${f.maxItems}`);
+    ans[f.key] = [...cur]; redraw();
+  }));
+  card.querySelectorAll("[data-fin]").forEach((inp) => (inp.oninput = () => {
+    const f = fieldOf(inp.dataset.fin);
+    if (inp.dataset.multi) {
+      const opts = (Array.isArray(ans[f.key]) ? ans[f.key] : []).filter((x) => f.options.some((o) => o.value === x));
+      ans[f.key] = [...opts, ...inp.value.split(",").map((x) => x.trim()).filter(Boolean)];
+    } else if (inp.dataset.num) ans[f.key] = inp.value === "" ? undefined : inp.dataset.num === "integer" ? parseInt(inp.value, 10) : Number(inp.value);
+    else ans[f.key] = inp.value;
+    if (f.options?.length && f.type === "string") card.querySelectorAll(`[data-fk="${CSS.escape(f.key)}"][data-fv]`).forEach((b) => b.classList.remove("primary"));
+  }));
+  card.querySelectorAll("[data-fsend]").forEach((b) => (b.onclick = () => {
+    const v = (ans[b.dataset.fsend] ?? "").toString().trim();
+    if (!v) return toast("Type an answer first");
+    send({ [b.dataset.fsend]: v });
+  }));
+  card.querySelector("[data-fin][enterkeyhint=send]")?.addEventListener("keydown", (e) => { if (e.key === "Enter" && oneTap(form)) { e.preventDefault(); card.querySelector("[data-fsend]")?.click(); } });
+  card.querySelector("[data-fsubmit]")?.addEventListener("click", () => { try { send(collect()); } catch (e) { toast(e.message, true); } });
+  card.querySelector("[data-fcancel]").onclick = async () => {
+    if (!(await ask("Dismiss this question?", "OpenCode is told you didn't answer it.", "Dismiss", true))) return;
+    try { await api(`/api/session/${s.id}/form`, { formID: form.id, cancel: true, message: "Dismissed from the phone" }); formDrafts.delete(form.id); toast("Dismissed"); }
+    catch (e) { toast(e.message, true); }
+  };
 }
 
 function openEnd(id) {
@@ -1624,26 +1761,40 @@ function launchBody() {
 async function ocPicker(box) {
   box.innerHTML = `<div class="muted" style="padding:10px 0">Loading OpenCode models…</div>`;
   let cat;
-  try { cat = S.ocCatalog ??= await api("/api/opencode/catalog"); }
-  catch (e) { box.innerHTML = `<div class="watch-only">${esc(e.message)}</div>`; return; }
+  // Re-fetched each time (server-cached): OpenCode's recently used models change as it's used on the PC.
+  try { cat = S.ocCatalog = await api("/api/opencode/catalog"); }
+  catch (e) { if (!(cat = S.ocCatalog)) { box.innerHTML = `<div class="watch-only">${esc(e.message)}</div>`; return; } }
   const o = (prefs.oc ??= {});
+  const known = (r) => cat.models.some((x) => x.ref === r);
+  // Default = this phone's last pick, else OpenCode's most recently used model, else its configured default.
+  const ocLast = (cat.recent ?? []).find(known);
+  const pick = (ref) => { o.model = ref; o.variant = ""; o.recent = [ref, ...(o.recent ?? []).filter((r) => r !== ref)].slice(0, 6); savePrefs(); };
+  box.ocChoice = () => {
+    const model = o.model || ocLast || cat.defaultModel || "";
+    const vs = cat.models.find((x) => x.ref === model)?.variants ?? [];
+    const v = (o.model || o.variant !== undefined ? o.variant : cat.variants?.[model]) || ""; // unset = OpenCode's own pick
+    return { model, variant: vs.includes(v) ? v : "" };
+  };
   const draw = (q = "") => {
-    const sel = o.model || cat.defaultModel;
+    const sel = box.ocChoice().model;
     const m = cat.models.find((x) => x.ref === sel);
     const ql = q.toLowerCase();
     const list = q ? cat.models.filter((x) => (x.name + " " + x.ref).toLowerCase().includes(ql)).slice(0, 30) : [];
+    const recent = [...new Set([...(o.recent ?? []), ...(cat.recent ?? [])])].filter(known).slice(0, 6).map((r) => cat.models.find((x) => x.ref === r));
+    const variant = box.ocChoice().variant;
     box.innerHTML = `
       <div class="field"><label>Model</label>
-        <div class="oc-model">${m ? `<b>${esc(m.name)}</b> <span class="muted">${esc(m.provider)}</span>` : esc(sel ?? "Default")}${o.model ? ` <button class="linkbtn" id="ocdef">use default</button>` : ` <span class="muted">(default)</span>`}</div>
+        <div class="oc-model">${m ? `<b>${esc(m.name)}</b> <span class="muted">${esc(m.provider)}</span>` : esc(sel || "Default")}${o.model ? ` <button class="linkbtn" id="ocdef">${ocLast ? "use OpenCode's last" : "use default"}</button>` : ` <span class="muted">(${ocLast ? "last used in OpenCode" : "default"})</span>`}</div>
+        ${recent.length ? `<div class="chips oc-recent" aria-label="Recent models"><span class="muted">Recent</span>${recent.map((x) => `<button data-ref="${esc(x.ref)}" class="${x.ref === sel ? "on" : ""}" title="${esc(x.ref)}">${esc(x.name)}</button>`).join("")}</div>` : ""}
         <input id="ocq" placeholder="Search ${cat.models.length} models…" value="${esc(q)}" autocomplete="off" style="font-family:var(--font)">
         ${list.length ? `<div class="oc-list">${list.map((x) => `<button data-ref="${esc(x.ref)}" class="${x.ref === sel ? "on" : ""}"><span>${esc(x.name)}</span><span class="muted">${esc(x.provider)}</span></button>`).join("")}</div>` : ""}
       </div>
-      ${m?.variants?.length ? `<div class="field"><label>Effort (variant)</label><div class="chips" id="ocvar"><button data-v="" class="${!o.variant ? "on" : ""}">Default</button>${m.variants.map((v) => `<button data-v="${esc(v)}" class="${o.variant === v ? "on" : ""}">${esc(v)}</button>`).join("")}</div></div>` : ""}
+      ${m?.variants?.length ? `<div class="field"><label>Effort (variant)</label><div class="chips" id="ocvar"><button data-v="" class="${!variant ? "on" : ""}">Default</button>${m.variants.map((v) => `<button data-v="${esc(v)}" class="${variant === v ? "on" : ""}">${esc(v)}</button>`).join("")}</div></div>` : ""}
       <div class="field"><label>Agent</label><div class="chips" id="ocag"><button data-v="" class="${!o.agent ? "on" : ""}">Default</button>${cat.agents.map((a) => `<button data-v="${esc(a.id)}" title="${esc(a.description)}" class="${o.agent === a.id ? "on" : ""}">${esc(a.id)}</button>`).join("")}</div></div>`;
     const qi = box.querySelector("#ocq");
     qi.oninput = () => { const v = qi.value; draw(v); const n = box.querySelector("#ocq"); n.focus(); n.setSelectionRange(v.length, v.length); };
-    box.querySelectorAll("[data-ref]").forEach((b) => (b.onclick = () => { o.model = b.dataset.ref; o.variant = ""; savePrefs(); draw(""); }));
-    box.querySelector("#ocdef")?.addEventListener("click", () => { o.model = ""; o.variant = ""; savePrefs(); draw(""); });
+    box.querySelectorAll("[data-ref]").forEach((b) => (b.onclick = () => { pick(b.dataset.ref); draw(""); }));
+    box.querySelector("#ocdef")?.addEventListener("click", () => { o.model = ""; delete o.variant; savePrefs(); draw(""); });
     box.querySelectorAll("#ocvar button").forEach((b) => (b.onclick = () => { o.variant = b.dataset.v; savePrefs(); draw(q); }));
     box.querySelectorAll("#ocag button").forEach((b) => (b.onclick = () => { o.agent = b.dataset.v; savePrefs(); draw(q); }));
   };
@@ -1688,8 +1839,8 @@ async function openNew() {
       try {
         const cwd = pane.querySelector("#cwd").value.trim(), prompt = pane.querySelector("#first").value.trim() || undefined;
         if ((prefs.launchAgent ?? "claude") === "opencode") {
-          const o = prefs.oc ?? {};
-          const r = await api("/api/new", { cwd, prompt, agent: "opencode", ocModel: o.model || undefined, ocVariant: o.variant || undefined, ocAgent: o.agent || undefined });
+          const o = prefs.oc ?? {}, c = box.ocChoice?.() ?? { model: o.model, variant: o.variant };
+          const r = await api("/api/new", { cwd, prompt, agent: "opencode", ocModel: c.model || undefined, ocVariant: c.variant || undefined, ocAgent: o.agent || undefined });
           close(); toast("OpenCode session started"); vibrate(20);
           if (r.id) nav("#/s/" + r.id);
         } else {
@@ -1846,15 +1997,14 @@ function renderHeadExtras(s) {
   const md = $("#s-model");
   if (md) { const name = shortModel(s.context?.model ?? s.modelName); md.textContent = name; md.title = s.context?.model ?? s.modelName ?? ""; }
   requestAnimationFrame(fitSubbar);
-  const claude = s.kind !== "opencode";
-  const c = claude ? s.context : null;
+  const c = s.context;
   cb.hidden = !c;
   if (c) {
     cb.className = "hd-ctx " + ctxLevel(c.pct);
     cb.innerHTML = `${ctxRing(c.pct)}<span>${c.pct}%</span>`;
     cb.setAttribute("aria-label", `Context ${c.pct}% used`);
   }
-  const a = claude ? s.agents : null;
+  const a = s.agents;
   ab.hidden = !a?.total;
   if (a?.total) {
     ab.className = "hd-agents" + (a.running ? " live" : "");
@@ -1867,11 +2017,14 @@ function openContextInfo(id) {
   const c = sess?.context;
   if (!c) return;
   const live = S.sessions.some((x) => x.id === id) && sess.kind !== "opencode";
-  const claudeModel = c.model && /^claude-/.test(c.model);
+  const claudeModel = sess.kind !== "opencode" && c.model && /^claude-/.test(c.model);
   const { el } = sheet(`<h3>Context window</h3>
     <div class="ctx-big ${ctxLevel(c.pct)}"><b>${c.pct}%</b><span>used</span></div>
     <div class="ctx-bar ${ctxLevel(c.pct)}"><i style="width:${c.pct}%"></i><em id="ctx-mark" hidden></em></div>
     <p class="muted" style="margin:10px 0 0">${ktok(c.tokens)} of ${ktok(c.size)} tokens${c.model ? ` · ${esc(shortModel(c.model))}` : ""}</p>
+    ${S.sessions.find((x) => x.id === id)?.kind === "opencode"
+      ? `<p class="muted" style="font-size:13px;margin:8px 0 0">The input and cached tokens of OpenCode's latest reply, against the model's context limit.${c.pct >= CTX_WARN ? " OpenCode compacts the conversation when it gets full; you can also send <b>/compact</b>." : ""}</p>`
+      : `<p class="muted" style="font-size:13px;margin:8px 0 0">Counted like Claude Code's status line: the input and cached tokens of the latest reply.${c.pct >= CTX_WARN ? " Claude compacts the conversation automatically when it gets full; you can also send <b>/compact</b>." : ""}</p>`}
     ${claudeModel ? `<div class="ctx-sec"><div class="ctx-lbl">Compact at <span class="muted" id="ctx-at"></span></div>
       <div class="chips" id="ctx-win"><span class="muted" style="font-size:13px">Loading…</span></div>
       <p class="muted ctx-note">Claude Code's own setting for <b>${esc(shortModel(c.model))}</b> (the same one <code>/autocompact</code> changes), so it applies to all its sessions.</p></div>` : ""}
@@ -1982,11 +2135,11 @@ function updateAgentChrome() {
 async function agentFetch(st, reset = false) {
   if (S.agentChat !== st || S.view?.kind !== "agent") return;
   try {
-    const j = await api(`/api/session/${st.sid}/agent/${st.aid}${reset ? "" : `?from=${st.end}`}`);
+    const j = await api(`/api/session/${st.sid}/agent/${st.aid}${reset ? "" : `?from=${st.end}${st.sig ? "&sig=" + st.sig : ""}`}`);
     if (S.agentChat !== st || S.view?.kind !== "agent") return;
-    st.agent = j.agent;
+    st.agent = j.agent; st.sig = j.sig; // OpenCode child sessions: hash of what the phone has
     const stick = reset || nearBottom();
-    if (reset || j.items.length) renderChatItems(st, j.items, { reset, start: j.start });
+    if (reset || j.reset || j.items.length) renderChatItems(st, j.items, { reset: reset || !!j.reset, start: j.start });
     st.end = j.end;
     const older = st.node.querySelector(".older");
     if (older) older.onclick = () => agentOlder(st);
@@ -2020,7 +2173,7 @@ async function agentOlder(st) {
 document.addEventListener("toggle", async (e) => {
   const det = e.target;
   if (!det?.matches?.("#chat details.tool") || !det.open || det.dataset.agentLink || S.view?.kind !== "session") return;
-  if (!/^(Agent|Task)$/.test(det.querySelector(".tn")?.textContent ?? "")) return;
+  if (!/^(Agent|Task|subagent|task)$/.test(det.querySelector(".tn")?.textContent ?? "")) return; // Claude Code · OpenCode
   det.dataset.agentLink = "1";
   const sid = S.view.id;
   try {
