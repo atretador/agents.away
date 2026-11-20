@@ -116,6 +116,8 @@ function usage() {
   agents-away apk build|status|remove      Build the Android app here (signed with a key kept in
                                      ~/.config/agents-away/android) and offer it on the setup page
   agents-away status                       Show what the server sees
+  agents-away updates on|off|check|status  Daily check for a new release on GitHub (off by default);
+                                     a newer one is announced with one notification
   agents-away hooks install|uninstall|status   Manage the Claude Code hooks Agents Away needs
   agents-away skill install|uninstall|status [--claude|--opencode]
                                      The agents-away-review skill (lets agents send you things to review)
@@ -375,6 +377,29 @@ async function pair(args: string[] = []) {
   console.log("   Manage signed-in phones in the app: ⚙ → Paired devices.\n");
 }
 
+async function updates(sub = "status") {
+  if (!["on", "off", "check", "status"].includes(sub)) { console.error("Usage: agents-away updates on|off|check|status"); process.exit(1); }
+  let j: any;
+  try {
+    const body = sub === "on" ? { enabled: true, check: true } : sub === "off" ? { enabled: false } : sub === "check" ? { check: true } : null;
+    const r = await call("/update", body ? { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } } : {}, 20_000);
+    j = await r.json();
+    if (!r.ok) throw new Error(j.error);
+  } catch { console.error("Agents Away server isn't running — start it with: systemctl --user start agents-away"); process.exit(1); }
+  if (sub === "check" && !j.enabled) { console.error("The update check is off. Turn it on with: agents-away updates on"); process.exit(1); }
+  console.log(`Update check: ${j.enabled ? "on (once a day)" : "off"}   Running: ${j.version}   Releases: ${j.repo ? `github.com/${j.repo}` : "unknown (no repository in package.json)"}`);
+  if (!j.enabled) {
+    if (sub === "off") console.log("No more requests to GitHub.");
+    else console.log("Turn it on with: agents-away updates on   (asks GitHub's API once a day; GitHub sees this PC's IP)");
+    return;
+  }
+  if (j.error) console.log(`Last check failed: ${j.error}`);
+  if (j.checkedAt) console.log(`Last checked: ${new Date(j.checkedAt).toLocaleString()}`);
+  if (j.latest === null) console.log("No release published yet.");
+  else if (j.newer) console.log(`\x1b[32m${j.newer.name} is available\x1b[0m: ${j.newer.url}${j.notified === j.newer.version ? "  (phones notified)" : ""}`);
+  else if (j.latest) console.log(`Up to date (latest release: ${j.latest.tag}).`);
+}
+
 async function status() {
   try {
     const j = await (await call("/status")).json() as any;
@@ -469,5 +494,6 @@ switch (cmd) {
   case "pair": await pair(rest); break;
   case "apk": await apk(rest[0]); break;
   case "status": await status(); break;
+  case "updates": case "update": await updates(rest[0]); break;
   default: usage();
 }

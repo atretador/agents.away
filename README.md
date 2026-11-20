@@ -10,7 +10,7 @@ it needs you or finishes, and let Claude send you screenshots to approve, all fr
 Agents Away is self-hosted. It runs on your PC and your phone reaches it over your home network or your
 own VPN (WireGuard, Tailscale…). Nothing goes through a third-party server. The one exception is
 the web app's push notifications, which travel end-to-end encrypted through your phone browser's push
-service (Google's on Android).
+service (Google's on Android), plus the optional [update check](#update-notifications-optional) if you turn it on.
 
 It's a web app (PWA) that you add to your home screen, not an app store download. On Android there is
 also an optional [Agents Away app](#android-app-several-pcs) that switches between several PCs and gets
@@ -265,6 +265,7 @@ it there. Not yet supported: search.
 | `agents-away pair [interface\|ip]` | Pairing QR codes / links for a new phone or the Android app (QR for the LAN, or e.g. `wg0`) |
 | `agents-away status` | Server status and current sessions |
 | `agents-away apk build\|status\|remove` | Build the Android app on this PC and offer it on the setup page |
+| `agents-away updates on\|off\|check\|status` | Optional daily check for a new release (off by default) |
 | `agents-away attach` / `agents-away a` | Attach this terminal to a Agents Away tmux session |
 | `agents-away review …` / `agents-away notify …` | See above |
 | `agents-away hooks install\|uninstall\|status` | Manage the Claude Code hooks |
@@ -287,6 +288,17 @@ Settings like quiet-while-at-PC and which events notify you are in the app (⚙)
 | `AWAY_EXTRA_SOCKETS` | none | Extra tmux servers to watch, comma-separated (`tmux -L <name>`), e.g. sessions from an older setup |
 
 Set these in the service with `systemctl --user edit agents-away`, adding `Environment=…` lines.
+
+### Update notifications (optional)
+
+Off by default. `agents-away updates on` makes the server ask GitHub once a day for the latest published
+release of this repository (the `repository` URL in `package.json`, so a fork checks its own). When it's
+newer than the version you run, you get one notification that opens the release page, and the app shows
+it under ⚙. Nothing is downloaded or installed: update with `git pull` and restart the service.
+`agents-away updates status` shows the last check, `check` checks now, `off` stops the requests.
+
+The request contains no data about you or your sessions, but GitHub sees your PC's IP address, which is
+why it's opt-in.
 
 ## Security
 

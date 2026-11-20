@@ -23,6 +23,7 @@ import { getPref, setPref, gitChanges, localImage, search } from "./extras";
 import { serveImage, variant, prewarm } from "./images";
 import * as OC from "./opencode";
 import * as Auth from "./auth";
+import { startUpdateChecks, newerRelease, loadState as updateState, REPO } from "./updates";
 import { getCompactWindow, setCompactWindow } from "./compact";
 import { contextUsage, agentCounts, listAgents, agentTranscript, agentChat, waitingOn, type Context, type Wait } from "./subagents";
 
@@ -45,6 +46,12 @@ function buildId() {
 }
 let BUILD = buildId();
 setInterval(() => { const b = buildId(); if (b !== BUILD) { BUILD = b; broadcast({ type: "build", build: BUILD }); } }, 5000);
+
+// Optional release check: one notification per newer version, opening the release page.
+const updates = startUpdateChecks(() => config.settings.updateCheck, (r) => {
+  console.log(`Agents Away ${r.version} is available (running ${VERSION}): ${r.url}`);
+  pushAll({ kind: "info", tag: "update", title: `Agents Away ${r.version} is available`, body: `You're running ${VERSION}. Tap to see what's new.`, url: r.url }).catch(() => {});
+});
 
 // ───────────────────────── session model ─────────────────────────
 
@@ -664,6 +671,8 @@ async function api(req: Request, url: URL, deviceKey: string): Promise<Response>
       host: hostname(),
       profile: profileName(),
       version: VERSION,
+      // Only when the owner turned the check on: a newer release, shown in ⚙.
+      update: config.settings.updateCheck ? newerRelease() : null,
     });
   }
   if (p === "/api/recent") {
@@ -1185,6 +1194,13 @@ Bun.serve({
       }
       if (p === "/pair-code" && req.method === "POST") return json({ ...Auth.newPairCode(), profile: profileName() });
       if (p === "/status") return json({ sessions: publicSessions(), subscribers: subscriptionCount() });
+      if (p === "/update" && req.method === "GET") { const s = updateState(); return json({ enabled: config.settings.updateCheck, version: VERSION, repo: REPO, ...s, newer: newerRelease(s) }); }
+      if (p === "/update" && req.method === "POST") {
+        const b = await req.json().catch(() => ({}));
+        if (typeof b.enabled === "boolean") { config.settings.updateCheck = b.enabled; saveConfig(); }
+        const s = b.check && config.settings.updateCheck ? await updates.checkNow() : updateState();
+        return json({ enabled: config.settings.updateCheck, version: VERSION, repo: REPO, ...s, newer: newerRelease(s) });
+      }
       if (p === "/notify" && req.method === "POST") {
         const b = await req.json();
         return json(await pushAll({ kind: "info", title: String(b.title ?? "Claude"), body: String(b.body ?? ""), tag: "n-" + Date.now(), url: "/" }));

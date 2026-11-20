@@ -298,6 +298,7 @@ export default {
   "1 year": "1 ano",
   "A phone is signed out after this long without opening Agents Away. Applies to all paired phones.": "Um celular é desconectado depois desse tempo sem abrir o Agents Away. Vale para todos os celulares pareados.",
   "Paired devices": "Dispositivos pareados",
+  "Agents Away {version} is available": "O Agents Away {version} já está disponível",
   "connected to {host}": "conectado a {host}",
   "This phone": "Este celular",
   "Paired {date}": "Pareado em {date}",

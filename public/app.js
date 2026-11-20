@@ -254,7 +254,7 @@ function onMsg(m) {
 async function loadState() {
   try {
     const j = await api("/api/state");
-    Object.assign(S, { sessions: j.sessions, reviews: j.reviews, settings: j.settings, push: j.push, host: j.host, profile: j.profile, version: j.version });
+    Object.assign(S, { sessions: j.sessions, reviews: j.reviews, settings: j.settings, push: j.push, host: j.host, profile: j.profile, version: j.version, update: j.update ?? null });
     try { NATIVE?.serverInfo(JSON.stringify({ profile: j.profile, version: j.version })); } catch {}
     if (S.view?.kind === "home") renderHome();
     if (S.view?.kind === "review") renderReview(S.view.id);
@@ -2092,7 +2092,8 @@ async function openSettings() {
     <p class="muted" style="font-size:12.5px;margin:8px 2px 0">${tr("A phone is signed out after this long without opening Agents Away. Applies to all paired phones.")}</p>
     <div class="set-label" style="margin-top:16px">${tr("Paired devices")}</div>
     <div id="devices" class="devices"><div class="muted" style="font-size:13px">${tr("Loading…")}</div></div>
-    <p class="muted" style="font-size:12.5px;margin:16px 2px 0">Agents Away ${esc(S.version ?? "")} · ${tr("connected to {host}", { host: esc(S.host) })} · ${esc(location.host)}</p>`);
+    <p class="muted" style="font-size:12.5px;margin:16px 2px 0">Agents Away ${esc(S.version ?? "")} · ${tr("connected to {host}", { host: esc(S.host) })} · ${esc(location.host)}</p>
+    ${S.update && /^https:\/\/github\.com\//.test(S.update.url) ? `<a class="btn block" style="margin-top:10px;text-decoration:none" href="${esc(S.update.url)}" target="_blank" rel="noopener noreferrer">${icon("sparkle")} ${tr("Agents Away {version} is available", { version: esc(S.update.version) })}</a>` : ""}`);
   const loadDevices = async () => {
     const box = el.querySelector("#devices");
     try {

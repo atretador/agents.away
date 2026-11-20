@@ -34,8 +34,11 @@ async function post(path, body) {
 }
 
 async function openUrl(url) {
+  const target = new URL(url, self.location.origin);
+  // Outside the app (e.g. a release page on GitHub): open it in the browser.
+  if (target.origin !== self.location.origin) return self.clients.openWindow(target.href);
   const all = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-  const hash = new URL(url, self.location.origin).hash;
+  const hash = target.hash;
   for (const c of all) {
     if (new URL(c.url).origin === self.location.origin) {
       await c.focus();

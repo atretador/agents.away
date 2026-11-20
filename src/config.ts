@@ -24,6 +24,7 @@ for (const d of [CFG_DIR, DATA_DIR, REVIEW_DIR]) mkdirSync(d, { recursive: true,
 if (!existsSync(TMUX_CONF)) writeFileSync(TMUX_CONF, readFileSync(join(import.meta.dir, "..", "tmux.conf")));
 
 export type Settings = {
+  updateCheck: boolean; // daily check for a newer GitHub release (opt-in: `agents-away updates on`)
   quietWhenActive: boolean; // skip push when the PC terminal was typed in recently
   activeWindowSec: number;
   notifyOnStop: boolean;
@@ -56,6 +57,7 @@ export function readJson<T>(path: string, fallback: T): T {
 
 function load(): Config {
   const defaults: Settings = {
+    updateCheck: false,
     quietWhenActive: true,
     activeWindowSec: 90,
     notifyOnStop: true,

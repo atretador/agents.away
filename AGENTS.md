@@ -45,8 +45,9 @@ User-facing docs: [README.md](README.md). This file is for coding agents changin
 | `src/subagents.ts` | Context-window % (tail of the transcript) and subagents: `<project>/<sessionId>/subagents/agent-<id>.jsonl` + `.meta.json`, status from the meta file and the parent's `<task-notification>`s |
 | `src/auth.ts` | Phone sign-in: one-time pairing codes (10 min), per-device sessions with sliding expiry (`settings.signInDays`), device list / sign-out |
 | `src/push.ts` | Web Push subscriptions and sending |
+| `src/updates.ts` | Opt-in release check (`settings.updateCheck`, `agents-away updates`): GitHub latest release once a day, state in `DATA_DIR/update.json`, one push per newer version |
 | `src/config.ts` | Paths, ports, config/secrets, settings defaults |
-| `bin/agents-away` | CLI (Bun script): `hook`, `hooks`, `review`, `notify`, `pair`, `status`, `attach` |
+| `bin/agents-away` | CLI (Bun script): `hook`, `hooks`, `review`, `notify`, `pair`, `status`, `updates`, `attach` |
 | `bin/agents-away-certs` | Creates the private CA and server certificate |
 | `public/` | PWA: `index.html`, `app.js`, `app.css`, `sw.js` (push + notification actions), onboarding pages, icons |
 | `public/i18n.js`, `public/i18n/*.js` | Phone UI translations (`tr`/`trn`); `public/page-i18n.js` translates `onboard.html` and `unpaired.html` |
