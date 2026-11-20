@@ -93,6 +93,10 @@ async function api(path, body, method) {
   return j;
 }
 const vibrate = (n = 10) => navigator.vibrate?.(n);
+// Inside the Agents Away Android app: it provides profiles (several PCs), notifications and certificate
+// trust itself, through this bridge. Absent in a browser / installed web app.
+const NATIVE = window.AwayNative ?? null;
+I.swap = '<path d="M7 7h11l-3-3M17 17H6l3 3"/>';
 /** Ask the server for a resized WebP (360 thumbs, 800 chat/notification, 1600 full view). */
 const sized = (url, w) => url + (url.includes("?") ? "&" : "?") + "w=" + w;
 
@@ -138,6 +142,7 @@ function applyPrefs() {
   requestAnimationFrame(() => {
     const bg = getComputedStyle(document.body).backgroundColor;
     document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute("content", bg));
+    try { NATIVE?.themeColor(bg); } catch {}
   });
   if ($("#term")) applyTermSize();
 }
@@ -249,7 +254,8 @@ function onMsg(m) {
 async function loadState() {
   try {
     const j = await api("/api/state");
-    Object.assign(S, { sessions: j.sessions, reviews: j.reviews, settings: j.settings, push: j.push, host: j.host, version: j.version });
+    Object.assign(S, { sessions: j.sessions, reviews: j.reviews, settings: j.settings, push: j.push, host: j.host, profile: j.profile, version: j.version });
+    try { NATIVE?.serverInfo(JSON.stringify({ profile: j.profile, version: j.version })); } catch {}
     if (S.view?.kind === "home") renderHome();
     if (S.view?.kind === "review") renderReview(S.view.id);
     // The socket may have missed changes (phone asleep): redraw the open session from this fresh state,
@@ -268,6 +274,7 @@ function b64ToU8(b) {
   return Uint8Array.from(s, (c) => c.charCodeAt(0));
 }
 async function pushStatus() {
+  if (NATIVE) return "native"; // the app delivers notifications over its own connection
   if (!("serviceWorker" in navigator) || !("PushManager" in window)) return "unsupported";
   if (Notification.permission === "denied") return "denied";
   if (swError) return "nosw";
@@ -426,7 +433,8 @@ async function renderHome() {
   const y = scrollY;
   app.innerHTML = `
     <header class="bar">
-      <div class="brand grow"><img src="/icons/icon.svg" alt="">Agents Away <span class="conn ${S.connected ? "" : "off"}"></span></div>
+      ${NATIVE ? `<button class="brand grow brand-btn" id="profiles" aria-label="${tr("Switch PC")}"><img src="/icons/icon.svg" alt="">${esc(S.profile || "Agents Away")} <span class="conn ${S.connected ? "" : "off"}"></span>${icon("swap")}</button>`
+        : `<div class="brand grow"><img src="/icons/icon.svg" alt="">Agents Away <span class="conn ${S.connected ? "" : "off"}"></span></div>`}
       <a class="icon-btn" href="#/search" aria-label="${tr("Search")}">${icon("search")}</a>
       <button class="icon-btn" id="settings" aria-label="${tr("Settings")}">${icon("gear")}</button>
     </header>
@@ -443,6 +451,7 @@ async function renderHome() {
   window.scrollTo(0, y);
   $("#enable")?.addEventListener("click", enablePush);
   $("#settings").onclick = openSettings;
+  $("#profiles")?.addEventListener("click", () => NATIVE?.openProfiles());
   $("#new").onclick = openNew;
   $("#clear-reviewed")?.addEventListener("click", async () => {
     const n = S.reviews.filter((r) => r.status !== "pending").length;
@@ -2054,13 +2063,19 @@ async function openSettings() {
   const ps = await pushStatus();
   const st = S.settings;
   const { el } = sheet(`<h3>${tr("Settings")}</h3>
-    <div class="toggle-row"><div class="grow"><div>${tr("Notifications on this phone")}</div><div class="d">${ps === "unsupported" ? tr("Install Agents Away to your home screen first") : ps === "denied" ? tr("Blocked in browser settings") : trn(S.push.subscribers, "{n} device subscribed", "{n} devices subscribed")}</div></div>
-      <input type="checkbox" class="switch" id="p-on" ${ps === "on" ? "checked" : ""} ${ps === "unsupported" || ps === "denied" ? "disabled" : ""}></div>
+    ${ps === "native" ? `<div class="toggle-row"><div class="grow"><div>${tr("Notifications on this phone")}</div><div class="d">${tr("Delivered by the Agents Away app over its own connection to this PC.")}</div></div>
+      <button class="btn small" id="p-native">${tr("App settings")}</button></div>`
+      : `<div class="toggle-row"><div class="grow"><div>${tr("Notifications on this phone")}</div><div class="d">${ps === "unsupported" ? tr("Install Agents Away to your home screen first") : ps === "denied" ? tr("Blocked in browser settings") : trn(S.push.subscribers, "{n} device subscribed", "{n} devices subscribed")}</div></div>
+      <input type="checkbox" class="switch" id="p-on" ${ps === "on" ? "checked" : ""} ${ps === "unsupported" || ps === "denied" ? "disabled" : ""}></div>`}
     <div class="toggle-row"><div class="grow"><div>${tr("When a session needs you")}</div><div class="d">${tr("Permission prompts and questions")}</div></div><input type="checkbox" class="switch" data-k="notifyOnAttention" ${st.notifyOnAttention ? "checked" : ""}></div>
     <div class="toggle-row"><div class="grow"><div>${tr("When a session finishes")}</div><div class="d">${tr("With the last thing Claude said")}</div></div><input type="checkbox" class="switch" data-k="notifyOnStop" ${st.notifyOnStop ? "checked" : ""}></div>
     <div class="toggle-row"><div class="grow"><div>${tr("Quiet while I'm at the PC")}</div><div class="d">${tr("Skip if that session's terminal was typed in during the last {sec}s", { sec: Math.round(st.activeWindowSec) })}</div></div><input type="checkbox" class="switch" data-k="quietWhenActive" ${st.quietWhenActive ? "checked" : ""}></div>
     <div class="spacer"></div>
     <button class="btn block" id="test">${icon("bell")} ${tr("Send test notification")}</button>
+    <h3 style="margin-top:26px">${tr("This PC")}</h3>
+    <div class="field"><label>${tr("Name")}</label>
+      <div style="display:flex;gap:8px"><input id="pcname" style="flex:1;font-family:var(--font)" maxlength="40" placeholder="${esc(S.host)}" value="${esc(st.profileName || "")}"><button class="btn" id="pcname-save">${tr("Save")}</button></div>
+      <div class="d muted" style="font-size:12.5px;margin-top:6px">${tr("Shown in the Agents Away Android app, where you can switch between PCs.")}</div></div>
     <h3 style="margin-top:26px">${tr("Appearance")}</h3>
     <div class="set-label">${tr("Language")}</div>
     <div class="seg-row" id="langs">${LANGS.map(([k, l]) => `<button data-lang="${k}" class="${langPref() === k ? "on" : ""}">${k === "auto" ? tr("Auto") : l}</button>`).join("")}</div>
@@ -2107,7 +2122,16 @@ async function openSettings() {
       loadDevices();
     } catch (e) { toast(e.message, true); }
   }));
-  el.querySelector("#p-on").onchange = (e) => (e.target.checked ? enablePush() : disablePush());
+  el.querySelector("#p-on")?.addEventListener("change", (e) => (e.target.checked ? enablePush() : disablePush()));
+  el.querySelector("#p-native")?.addEventListener("click", () => NATIVE?.openNotificationSettings());
+  el.querySelector("#pcname-save").onclick = async () => {
+    try {
+      const j = await api("/api/settings", { profileName: el.querySelector("#pcname").value });
+      S.settings = j.settings; S.profile = j.settings.profileName || S.host;
+      try { NATIVE?.serverInfo(JSON.stringify({ profile: S.profile, version: S.version })); } catch {}
+      toast(tr("Saved")); vibrate(10);
+    } catch (e) { toast(e.message, true); }
+  };
   el.querySelectorAll("[data-k]").forEach((c) => (c.onchange = async () => {
     try { const j = await api("/api/settings", { [c.dataset.k]: c.checked }); S.settings = j.settings; } catch (e) { toast(e.message, true); }
   }));
@@ -2367,7 +2391,7 @@ document.addEventListener("toggle", async (e) => {
 history.scrollRestoration = "manual"; // Agents Away restores positions itself; the browser's guess fights it
 applyPrefs();
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("/sw.js").catch((e) => { swError = e.message; if (S.view?.kind === "home") renderHome(); });
+  if (!NATIVE) navigator.serviceWorker.register("/sw.js").catch((e) => { swError = e.message; if (S.view?.kind === "home") renderHome(); });
   navigator.serviceWorker.addEventListener("message", (e) => { if (e.data?.navigate) nav(e.data.navigate.replace(/^\/?/, "")); });
 }
 await loadState();

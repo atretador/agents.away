@@ -53,6 +53,7 @@ User-facing docs: [README.md](README.md). This file is for coding agents changin
 | `shell/` | `claude` wrappers (fish, bash/zsh) that start sessions in `tmux -L agents-away` |
 | `skills/agents-away-review/` | Claude Code skill telling Claude how to use `agents-away review` |
 | `install.sh`, `agents-away.service.in`, `tmux.conf` | Installation |
+| `android/` | Optional Android app (Kotlin, Gradle): profiles for several PCs, each shown in a WebView of that PC's web app; see "Android app" below |
 
 ## Key mechanics
 
@@ -67,7 +68,7 @@ User-facing docs: [README.md](README.md). This file is for coding agents changin
   page backwards (`older`). Keep results clipped (`1500` chars) because payload size is what makes
   session switching feel fast.
 - **WebSocket protocol** (client → server): `watch {id, chat, term, from}`, `peek`, `older`,
-  `visible`, `ping`. Server → client: `sessions`, `reviews`, `build` (triggers a client reload when
+  `visible`, `ping`, `listen` (Android app: receive notifications). Server → client: `notify` (to listeners), `sessions`, `reviews`, `build` (triggers a client reload when
   the server's build id changes), `chat {reset|items, start, end}`, `older`, `term`, `queue`.
 - **Answering prompts:** re-capture the pane and verify the menu is still there before sending keys.
   Choose options by moving the ❯ cursor with arrows, never by typing digits blindly.
@@ -132,6 +133,22 @@ User-facing docs: [README.md](README.md). This file is for coding agents changin
   translate text that is sent to an agent or matched against Claude Code's screen; push notifications,
   `sw.js` and the CLI are English only. The language (`away.lang`: auto/en/es/pt-BR) is fixed per page
   load, so module-level constants may call `tr()`; changing it reloads the app.
+- **Android app** (`android/app/src/main/java/io/github/atretador/agentsaway/`): a thin shell, no UI of
+  its own beyond pairing/switching. `Profiles.kt` (one per PC: addresses, CA PEM + SHA-256, the
+  `away_dev` cookie; SharedPreferences, no backup), `Trust.kt` (pinned CA: signature, validity, SAN of
+  the address; Android's store is never used), `Pairing.kt` (`/pair?t=&fp=&n=` link → fetch
+  `/agents-away-ca.crt`, compare with `fp`, redeem the code natively and keep the cookie),
+  `MainActivity.kt` (WebView per profile, LRU of 3; `onReceivedSslError` applies the pin; the cookie is
+  re-set on every switch because WebView cookies ignore the port), `NotifyService.kt` (foreground
+  service, one OkHttp WebSocket per PC sending `{type: "listen"}`), `Notifier.kt`, `Receivers.kt`
+  (notification actions call the same endpoints as `sw.js`). The web app detects it with
+  `window.AwayNative` (`openProfiles`, `openNotificationSettings`, `serverInfo`, `themeColor`; checked
+  against the WebView's current origin) and then skips the service worker and Web Push. Server side:
+  `listen` makes `pushAll` (via `setPushTap`) send `{type: "notify", …payload}` to that socket, and on
+  each `listen` the server replays what's still pending (`replay: true`; the app skips ones it already
+  showed). `settings.profileName` names the PC (default: hostname); `agents-away pair` adds `fp` and
+  `n` to the link. Build: `cd android && ./gradlew assembleDebug`; the version comes from `package.json`;
+  CI (`.github/workflows/android.yml`) attaches a signed APK to the release on a `v*` tag.
 - **Client state:** per-phone prefs in `localStorage` (`away.prefs`, `away.seen`, `away.mode`, `away.lang`).
   Bottom sheets go through `sheet()` (it pushes a history entry so Back closes them). Navigate with
   `nav()`, not `location.hash =`, while a sheet may be open.

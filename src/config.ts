@@ -29,6 +29,7 @@ export type Settings = {
   notifyOnStop: boolean;
   notifyOnAttention: boolean;
   signInDays: number; // a phone is signed out after this many days without opening the app
+  profileName: string; // this PC's name in the apps ("" = the hostname)
 };
 
 type Config = {
@@ -60,6 +61,7 @@ function load(): Config {
     notifyOnStop: true,
     notifyOnAttention: true,
     signInDays: 30,
+    profileName: "",
   };
   if (existsSync(CONFIG_FILE)) {
     const c = readJson<Config>(CONFIG_FILE, null as any);

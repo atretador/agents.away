@@ -3,6 +3,22 @@
 All notable changes to Agents Away. Versions follow [Semantic Versioning](https://semver.org/); while the
 version is 0.x, minor releases may change behaviour or configuration.
 
+## Unreleased
+
+### Android app
+- Optional Android app (APK from GitHub Releases) for using several PCs: one profile per PC, switch from
+  the PC name in the header, launcher shortcuts per PC. Each profile shows that PC's own web app.
+- Pairing by scanning or pasting the link from `agents-away pair`, with no CA install: the link now
+  carries the CA's fingerprint and the app trusts that CA for that PC only. Pairing a PC over another
+  address (LAN, VPN) adds it to the same profile; the app uses whichever answers.
+- Notifications over the app's own connection to each PC, with no push service or other app: the PC
+  sends its notification events down a WebSocket, and re-sends what's pending after a reconnect.
+  **Allow** and **Approve** work from the notification.
+
+### Web app and server
+- **⚙ → This PC → Name** sets the name the Android app shows (default: the hostname).
+- The question card shows up when you open a session from a notification after the phone slept.
+
 ## 0.1.0 — first release
 
 The first public version: a self-hosted phone companion (PWA) for the Claude Code and OpenCode sessions
@@ -44,6 +60,10 @@ running on your Linux PC, served over your LAN or VPN.
   without use (1 day – 1 year, default 30 days), paired-device list with sign-out; only hashes of
   sign-ins are stored. HTTPS with a private CA generated on the PC, limited (name constraints) to private
   addresses and the PC's own names; `agents-away pair` prints its fingerprint to compare on the phone.
+- `agents-away apk build|status|remove`: build the Android app on the PC (signed with a key kept in
+  `~/.config/agents-away/android`) and offer it on the setup page, with its SHA-256.
+- Setup page redone for phones: choose **Android app** (no certificate) or **Web app** (certificate), each
+  with its own steps marked Required or Recommended; Android/iPhone preselected from the browser.
 - `agents-away pair <interface|ip>` makes the QR codes for that address (e.g. `wg0` for a VPN) instead of
   the LAN one, and refuses addresses the HTTPS certificate doesn't cover (saying how to add them).
   The local API for hooks and the CLI listens on 127.0.0.1 only.

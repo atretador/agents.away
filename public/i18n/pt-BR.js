@@ -383,4 +383,9 @@ export default {
   "Sent to {n} devices": "Enviada para {n} dispositivos",
   "{n} subagent": "{n} subagente",
   "{n} subagents": "{n} subagentes",
+  "Switch PC": "Trocar de PC",
+  "Delivered by the Agents Away app over its own connection to this PC.": "Entregues pelo app Agents Away pela própria conexão dele com este PC.",
+  "App settings": "Configurações do app",
+  "This PC": "Este PC",
+  "Shown in the Agents Away Android app, where you can switch between PCs.": "Aparece no app Agents Away para Android, onde você pode trocar entre PCs.",
 };

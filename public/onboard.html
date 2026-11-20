@@ -1,27 +1,97 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title data-i18n="setupTitle">Agents Away setup</title>
+<meta name="theme-color" content="#f6f2ec" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#16130f" media="(prefers-color-scheme: dark)">
 <style>
-:root{--bg:#f6f2ec;--card:#fffdf9;--ink:#221d17;--ink2:#5c5348;--line:#e3dbcf;--accent:#c8582e;color-scheme:light}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#16130f;--card:#221d17;--ink:#f1ebe2;--ink2:#bcb1a2;--line:#342d24;--accent:#e8794c;color-scheme:dark}}
-body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,sans-serif}
-main{max-width:560px;margin:0 auto;padding:28px 16px 48px}
-h1{font-size:24px;margin:0 0 4px}.sub{color:var(--ink2);margin:0 0 20px}
-.step{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:12px}
-.step h2{font-size:16px;margin:0 0 6px;display:flex;gap:10px;align-items:center}
-.n{width:26px;height:26px;border-radius:50%;background:var(--accent);color:#fff;display:grid;place-items:center;font-size:14px;flex:none}
-.btn{display:inline-block;margin-top:10px;background:var(--accent);color:#fff;text-decoration:none;padding:11px 18px;border-radius:12px;font-weight:600}
-ol{padding-left:1.2em;margin:6px 0;color:var(--ink2)} li{margin:3px 0} code{background:rgba(127,127,127,.15);padding:1px 6px;border-radius:6px}
+:root{--bg:#f6f2ec;--card:#fffdf9;--ink:#221d17;--ink2:#5c5348;--ink3:#8a7f72;--line:#e3dbcf;--accent:#c8582e;--accent-soft:#f8e4d9;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#16130f;--card:#221d17;--ink:#f1ebe2;--ink2:#bcb1a2;--ink3:#8f8476;--line:#342d24;--accent:#e8794c;--accent-soft:#3a2418;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%}
+main{max-width:560px;margin:0 auto;padding:max(24px,env(safe-area-inset-top)) 16px max(40px,env(safe-area-inset-bottom))}
+code{font:13px/1.4 ui-monospace,"SF Mono",Menlo,monospace;background:rgba(127,127,127,.16);padding:1px 6px;border-radius:6px;overflow-wrap:anywhere}
+b{font-weight:650}
+/* header */
+.hero{display:flex;gap:14px;align-items:center;margin:4px 0 18px}
+.hero svg{width:52px;height:52px;flex:none;border-radius:13px}
+h1{font-size:22px;line-height:1.2;margin:0}
+.hero p{margin:3px 0 0;color:var(--ink2);font-size:14.5px}
+/* path choice (only when this PC offers the Android app) */
+.radio{position:absolute;opacity:0;pointer-events:none}
+.choice{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 0 18px}
+.choice label{display:block;background:var(--card);border:1.5px solid var(--line);border-radius:14px;padding:12px 12px 11px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.choice b{display:block;font-size:15.5px}
+.choice small{display:block;color:var(--ink3);font-size:12.5px;line-height:1.35;margin-top:2px}
+#p-app:checked~.choice label[for=p-app],#p-web:checked~.choice label[for=p-web]{border-color:var(--accent);background:var(--accent-soft);box-shadow:0 0 0 1px var(--accent) inset}
+#p-app:focus-visible~.choice label[for=p-app],#p-web:focus-visible~.choice label[for=p-web]{outline:2px solid var(--accent);outline-offset:2px}
+.app-path{display:none}
+#p-app:checked~.paths .app-path{display:block}
+#p-app:checked~.paths .web-path{display:none}
+/* steps */
+.intro{color:var(--ink2);font-size:14.5px;margin:0 2px 12px}
+.step{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 14px 15px;margin-bottom:10px}
+.step-h{display:flex;gap:10px;align-items:center;margin-bottom:6px}
+.n{width:26px;height:26px;border-radius:50%;background:var(--accent);color:#fff;display:grid;place-items:center;font-size:14px;font-weight:700;flex:none}
+.step.opt .n{background:transparent;color:var(--accent);border:1.5px solid var(--accent)}
+.step-h h2{font-size:16.5px;margin:0;flex:1;line-height:1.25}
+.tag{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:3px 8px;border-radius:99px;flex:none;white-space:nowrap}
+.tag.req{background:var(--accent);color:#fff}
+.tag.rec{border:1px solid var(--ink3);color:var(--ink2)}
+.step p{margin:0;color:var(--ink2);font-size:14.5px}
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;min-height:48px;margin-top:12px;background:var(--accent);color:#fff;text-decoration:none;padding:10px 18px;border-radius:12px;font-weight:650;font-size:16px}
+.btn.ghost{background:transparent;color:var(--accent);border:1.5px solid var(--accent)}
+.meta{color:var(--ink3);font-size:12.5px;margin-top:6px;text-align:center}
+details{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
+summary{cursor:pointer;color:var(--ink);font-size:14px;font-weight:600;padding:4px 0;list-style:none;display:flex;align-items:center;gap:6px}
+summary::-webkit-details-marker{display:none}
+summary::before{content:"›";display:inline-block;width:12px;transition:transform .15s;color:var(--ink3);font-size:18px;line-height:1}
+details[open] summary::before{transform:rotate(90deg)}
+details>div{color:var(--ink2);font-size:14px;padding:4px 0 2px}
+ol{padding-left:1.3em;margin:4px 0}li{margin:4px 0}
+.note{display:flex;gap:10px;align-items:flex-start;background:var(--accent-soft);border-radius:14px;padding:12px 14px;margin:0 0 12px;font-size:14px;color:var(--ink)}
+.note i{font-style:normal;font-size:16px;line-height:1.3}
+.foot{color:var(--ink3);font-size:12.5px;text-align:center;margin:18px 8px 0}
 </style></head><body><main>
-<h1 data-i18n="setupH">Set up Agents Away</h1><p class="sub" data-i18n="setupSub">You only need to do this once per phone.</p>
-<div class="step"><h2><span class="n">1</span><span data-i18n="s1h">Download the certificate</span></h2>
-<span data-i18n="s1">This lets the phone trust the PC's HTTPS (needed for notifications). It's a private certificate made on your PC.
-When the phone shows the certificate's details, check its SHA-256 fingerprint matches the one <code>agents-away pair</code> printed on the PC.</span>
-<br><a class="btn" href="/agents-away-ca.crt" data-i18n="s1b">Download certificate</a></div>
-<div class="step"><h2><span class="n">2</span><span data-i18n="s2h">Install it</span></h2>
-<div data-i18n="s2"><b>Android:</b><ol><li>Settings → Security &amp; privacy → More security settings → Encryption &amp; credentials</li><li>Install a certificate → <b>CA certificate</b> → Install anyway → pick <code>agents-away-ca.crt</code></li></ol>
-<b>iPhone:</b><ol><li>Settings → Profile Downloaded → Install</li><li>Settings → General → About → Certificate Trust Settings → turn on “Agents Away local CA”</li></ol></div></div>
-<div class="step"><h2><span class="n">3</span><span data-i18n="s3h">Pair</span></h2>
-<span data-i18n="s3">On the PC run <code>agents-away pair</code> and scan the second QR code (the pairing link). Then use the browser menu → <b>Add to Home screen</b>, open Agents Away from the home screen and tap <b>Turn on</b> for notifications.</span>
-<br><a class="btn" href="{{HTTPS}}" data-i18n="s3b">Open Agents Away</a></div>
+<header class="hero">
+<svg viewBox="0 0 512 512" aria-hidden="true"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2a221b"/><stop offset="1" stop-color="#15110d"/></linearGradient><mask id="m"><rect width="512" height="512" fill="#fff"/><circle cx="318" cy="214" r="124" fill="#000"/></mask></defs><rect width="512" height="512" rx="116" fill="url(#g)"/><circle cx="240" cy="270" r="142" fill="#e8794c" mask="url(#m)"/><path d="M330 150c6 40 16 50 56 56c-40 6-50 16-56 56c-6-40-16-50-56-56c40-6 50-16 56-56z" fill="#f6e1d6"/></svg>
+<div><h1 data-i18n="setupH">Set up Agents Away</h1><p data-i18n="setupSub">Once per phone, about two minutes.</p></div>
+</header>
+
+<!--APK--><input class="radio" type="radio" name="path" id="p-app" {{APP_CHECKED}}><input class="radio" type="radio" name="path" id="p-web" {{WEB_CHECKED}}>
+<div class="choice" role="radiogroup">
+<label for="p-app"><b data-i18n="appTab">Android app</b><small data-i18n="appTabSub">No certificate to install · switches between PCs</small></label>
+<label for="p-web"><b data-i18n="webTab">Web app</b><small data-i18n="webTabSub">iPhone or any browser · needs a certificate</small></label>
+</div><!--/APK-->
+
+<div class="paths">
+<!--APK--><section class="path app-path">
+<div class="note"><i>✓</i><span data-i18n="appNote">No certificate needed: the pairing code tells the app which certificate to trust, for this PC only.</span></div>
+<div class="step"><div class="step-h"><span class="n">1</span><h2 data-i18n="a1h">Install the app</h2><span class="tag req" data-i18n="req">Required</span></div>
+<p data-i18n="a1">Download it, open the file and install. Android asks to allow your browser to install apps: allow it for this install.</p>
+<a class="btn" href="/agents-away.apk"><span aria-hidden="true">↓</span> <span data-i18n="a1b">Download the app</span></a>
+<div class="meta">v{{APK_VERSION}} · {{APK_SIZE}} · Android 10+</div>
+<details><summary data-i18n="a1check">Check the download</summary><div><span data-i18n="a1sha">Its SHA-256 should match <code>agents-away apk status</code> on the PC:</span><br><code>{{APK_SHA}}</code></div></details></div>
+<div class="step"><div class="step-h"><span class="n">2</span><h2 data-i18n="a2h">Pair with this PC</h2><span class="tag req" data-i18n="req">Required</span></div>
+<p data-i18n="a2">On the PC run <code>agents-away pair</code>. In the app tap <b>Scan QR code</b> and scan the <b>second</b> QR code (the pairing link). It works once, within 10 minutes.</p></div>
+<div class="step opt"><div class="step-h"><span class="n">3</span><h2 data-i18n="a3h">Allow notifications</h2><span class="tag rec" data-i18n="rec">Recommended</span></div>
+<p data-i18n="a3">When the app asks, allow notifications and let it run without battery restrictions, so it can tell you when a session needs you.</p></div>
+</section><!--/APK-->
+
+<section class="path web-path">
+<p class="intro" data-i18n="webIntro">The web app runs in your browser and is added to the home screen. The phone has to trust your PC's private certificate first.</p>
+<div class="step"><div class="step-h"><span class="n">1</span><h2 data-i18n="w1h">Download the certificate</h2><span class="tag req" data-i18n="req">Required</span></div>
+<p data-i18n="w1">It lets this phone trust your PC's HTTPS (needed for notifications). It's made on your PC and can only vouch for local addresses.</p>
+<a class="btn" href="/agents-away-ca.crt"><span aria-hidden="true">↓</span> <span data-i18n="w1b">Download certificate</span></a>
+<details><summary data-i18n="w1check">Check the fingerprint</summary><div data-i18n="w1fp">When the phone shows the certificate's details, its SHA-256 fingerprint must match the one <code>agents-away pair</code> prints on the PC.</div></details></div>
+<div class="step"><div class="step-h"><span class="n">2</span><h2 data-i18n="w2h">Install the certificate</h2><span class="tag req" data-i18n="req">Required</span></div>
+<details {{ANDROID_OPEN}}><summary>Android</summary><div data-i18n="w2android"><ol><li>Settings → Security &amp; privacy → More security settings → Encryption &amp; credentials</li><li>Install a certificate → <b>CA certificate</b> → Install anyway → pick <code>agents-away-ca.crt</code></li></ol></div></details>
+<details {{IOS_OPEN}}><summary>iPhone</summary><div data-i18n="w2ios"><ol><li>Settings → Profile Downloaded → Install</li><li>Settings → General → About → Certificate Trust Settings → turn on “Agents Away local CA”</li></ol></div></details></div>
+<div class="step"><div class="step-h"><span class="n">3</span><h2 data-i18n="w3h">Pair</h2><span class="tag req" data-i18n="req">Required</span></div>
+<p data-i18n="w3">On the PC run <code>agents-away pair</code> and scan the <b>second</b> QR code (the pairing link) with the camera. It works once, within 10 minutes.</p></div>
+<div class="step opt"><div class="step-h"><span class="n">4</span><h2 data-i18n="w4h">Add it to the home screen</h2><span class="tag rec" data-i18n="rec">Recommended</span></div>
+<p data-i18n="w4">Browser menu → <b>Add to Home screen</b> (iPhone: Share → <b>Add to Home Screen</b>). Open it from there and tap <b>Turn on</b> for notifications.</p>
+<a class="btn ghost" href="{{HTTPS}}" data-i18n="w4b">Open Agents Away</a></div>
+</section>
+</div>
+<p class="foot" data-i18n="foot">Only for your own phone, on your home network or your VPN.</p>
 </main><script src="/page-i18n.js"></script></body></html>

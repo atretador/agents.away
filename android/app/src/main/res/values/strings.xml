@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name" translatable="false">Agents Away</string>
+    <string name="ch_attention">Needs you</string>
+    <string name="ch_review">Reviews</string>
+    <string name="ch_done">Finished</string>
+    <string name="ch_info">Other</string>
+    <string name="ch_service">Connection</string>
+    <string name="ch_service_desc">Shown while the app keeps its connection to your PCs. You can hide it; notifications keep working.</string>
+    <string name="action_open">Open</string>
+    <string name="action_allow">Allow</string>
+    <string name="action_approve">Approve</string>
+    <string name="done_allowed">Allowed</string>
+    <string name="done_approved">Approved</string>
+    <string name="err_unreachable">Can\'t reach %1$s</string>
+    <string name="err_action">Couldn\'t do that</string>
+    <string name="svc_starting">Connecting…</string>
+    <string name="svc_connected">Connected to %1$s</string>
+    <string name="svc_reconnecting">reconnecting to %1$s</string>
+    <string name="signed_out_title">%1$s signed this phone out</string>
+    <string name="signed_out_text">On that PC, run agents-away pair and scan the pairing code again (⊕ Add a PC).</string>
+    <string name="connecting">Connecting to %1$s…</string>
+    <string name="switch_title">Switch PC</string>
+    <string name="add_pc">⊕ Add a PC</string>
+    <string name="remove_pc">Remove a PC…</string>
+    <string name="add_pc_text">On the PC, run agents-away pair and scan the second QR code (the pairing link). You don\'t need the certificate step.</string>
+    <string name="scan_qr">Scan QR code</string>
+    <string name="paste_link">Paste link</string>
+    <string name="scan_prompt">Scan the pairing code from agents-away pair</string>
+    <string name="pair">Pair</string>
+    <string name="pairing">Pairing with %1$s…</string>
+    <string name="remove_confirm">Remove %1$s?</string>
+    <string name="remove_text">The app forgets this PC, and the PC signs this phone out.</string>
+    <string name="remove">Remove</string>
+    <string name="pair_failed">Couldn\'t pair</string>
+    <string name="battery_title">Keep notifications on time</string>
+    <string name="battery_text">Agents Away keeps its own connection to your PCs instead of using a push service. Let it run without battery restrictions, or Android may pause that connection while the phone sleeps.</string>
+    <string name="battery_allow">Allow</string>
+    <string name="not_now">Not now</string>
+    <string name="welcome_text">Follow and answer the coding agents on your PCs.\n\nOn a PC, run agents-away pair and scan the second QR code (the pairing link).</string>
+    <string name="unreachable_title">Can\'t reach %1$s</string>
+    <string name="unreachable_text">Tried:\n%1$s\n\nIs the PC on, and is this phone on its network or VPN?</string>
+    <string name="retry">Retry</string>
+    <string name="pair_not_a_link">That isn\'t a pairing link from agents-away pair.</string>
+    <string name="pair_no_fingerprint">This pairing link has no certificate fingerprint. Update Agents Away on the PC and run agents-away pair again.</string>
+    <string name="pair_no_ca">Couldn\'t get the PC\'s certificate.</string>
+    <string name="pair_unreachable">Can\'t reach the PC at that address. Is this phone on its network or VPN?</string>
+    <string name="pair_fingerprint_mismatch">The PC\'s certificate doesn\'t match the pairing code. Something between this phone and the PC may be intercepting the connection.</string>
+    <string name="pair_cert_mismatch">The PC\'s HTTPS certificate isn\'t valid for this address. On the PC, run bin/agents-away-certs and restart Agents Away.</string>
+    <string name="pair_expired">This pairing code has expired or was already used. Run agents-away pair again.</string>
+</resources>

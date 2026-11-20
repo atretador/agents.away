@@ -33,11 +33,17 @@ export type PushPayload = {
   sessionId?: string;
   reviewId?: string;
   actions?: { action: string; title: string }[];
+  promptKey?: string;
 };
 
+// Devices listening on their own connection (the Android app) get every notification too. Set by the server.
+let tap: ((p: PushPayload) => number) | null = null;
+export function setPushTap(fn: (p: PushPayload) => number) { tap = fn; }
+
 export async function pushAll(p: PushPayload) {
-  if (!subs.length) return { sent: 0 };
-  let sent = 0;
+  const live = tap?.(p) ?? 0;
+  if (!subs.length) return { sent: live };
+  let sent = live;
   const dead: string[] = [];
   await Promise.all(
     subs.map(async (s) => {

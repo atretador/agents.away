@@ -13,7 +13,8 @@ Include what you can of:
 - what an attacker can do, and from where (same LAN, VPN peer, another local user, a web page the phone
   visits, a prompt-injected agent reply…);
 - steps to reproduce, or a proof of concept;
-- the version (`agents-away --version`) or commit, and your OS, browser and phone.
+- the version (`agents-away --version`) or commit, and your OS, browser and phone (and the Android app's
+  version, if it's involved).
 
 This is a one-person project maintained in spare time, so there's no formal SLA. You can expect an
 acknowledgement within a week, a fix or a plan for one as soon as practical, and credit in the advisory
@@ -39,7 +40,10 @@ warning and the [Security section](README.md#security) of the README. In scope, 
 - the local API (127.0.0.1) being usable without its token, or the token, push keys or CA key leaking to
   a phone or the network;
 - the private CA being usable to vouch for sites other than this PC;
-- anything that makes Agents Away send input to a session that the user didn't type, tap or answer.
+- anything that makes Agents Away send input to a session that the user didn't type, tap or answer;
+- the Android app accepting a certificate its PC's CA didn't issue, trusting a PC's CA for anything but
+  that PC's addresses, leaking a profile's sign-in, or letting a page that isn't the PC's own web app
+  use its native bridge (`window.AwayNative`).
 
 Out of scope, as the README states:
 

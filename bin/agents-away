@@ -2,7 +2,7 @@
 // Agents Away CLI: Claude Code hook forwarding, image reviews, notifications, pairing.
 import { readFileSync, existsSync, statSync, mkdirSync, writeFileSync, rmSync, realpathSync } from "node:fs";
 import { homedir, networkInterfaces } from "node:os";
-import { X509Certificate } from "node:crypto";
+import { X509Certificate, createHash, randomBytes } from "node:crypto";
 import { join, basename, resolve, dirname } from "node:path";
 
 const CFG = join(process.env.AWAY_CONFIG_DIR ?? join(homedir(), ".config/agents-away"), "config.json");
@@ -12,6 +12,12 @@ const PORT = Number(process.env.AWAY_LOCAL_PORT ?? RUN.local ?? 7442);
 const HTTPS = Number(process.env.AWAY_PORT ?? RUN.https ?? 7443);
 const ONBOARD = Number(process.env.AWAY_ONBOARD_PORT ?? RUN.onboard ?? 7440);
 const BASE = `http://127.0.0.1:${PORT}`;
+const DATA = process.env.AWAY_DATA_DIR ?? join(homedir(), ".local/share/agents-away");
+// The Android app this PC serves on its setup page (agents-away apk build), and the key it's signed with.
+const APK_DIR = join(DATA, "android");
+const APK = join(APK_DIR, "agents-away.apk");
+const APK_META = join(APK_DIR, "agents-away.json");
+const KEY_DIR = join(dirname(CFG), "android");
 
 function token(): string {
   try { return JSON.parse(readFileSync(CFG, "utf8")).token; } catch { return ""; }
@@ -107,6 +113,8 @@ function usage() {
                                      Detach again with Ctrl-b d — the session keeps running
   agents-away pair [interface|ip]          Show the QR codes for pairing a phone, for the LAN address or
                                      the one given (e.g. agents-away pair wg0)
+  agents-away apk build|status|remove      Build the Android app here (signed with a key kept in
+                                     ~/.config/agents-away/android) and offer it on the setup page
   agents-away status                       Show what the server sees
   agents-away hooks install|uninstall|status   Manage the Claude Code hooks Agents Away needs
   agents-away skill install|uninstall|status [--claude|--opencode]
@@ -236,6 +244,63 @@ function addrs() {
   return out;
 }
 
+/** The APK this PC serves, if one was built: {version, sha256, size, builtAt}. */
+function apkMeta(): { version: string; sha256: string; size: number; builtAt: number } | null {
+  try { return existsSync(APK) ? JSON.parse(readFileSync(APK_META, "utf8")) : null; } catch { return null; }
+}
+
+async function apk(sub = "status") {
+  if (sub === "build") return apkBuild();
+  if (sub === "remove") { rmSync(APK, { force: true }); rmSync(APK_META, { force: true }); console.log("The setup page no longer offers the Android app."); return; }
+  if (sub !== "status") { console.error("Usage: agents-away apk build|status|remove"); process.exit(1); }
+  const m = apkMeta();
+  if (!m) { console.log("No Android app built yet. Build one with: agents-away apk build   (needs JDK 17+ and the Android SDK)"); return; }
+  console.log(`Android app ${m.version}, built ${new Date(m.builtAt).toLocaleString()}, ${(m.size / 1e6).toFixed(1)} MB`);
+  console.log(`SHA-256: ${m.sha256}`);
+  for (const a of addrs()) console.log(`Download: http://${a.ip}:${ONBOARD}/agents-away.apk   (${a.name})`);
+}
+
+/** Builds a signed release APK from android/ and puts it where the setup page serves it. The signing key is
+ *  made once and kept with the other secrets: Android only installs an update signed with the same key. */
+async function apkBuild() {
+  const root = join(dirname(realpathSync(import.meta.path)), "..");
+  const project = join(root, "android");
+  if (!existsSync(join(project, "gradlew"))) { console.error(`No Android project at ${project}.`); process.exit(1); }
+  if (!process.env.ANDROID_HOME && !process.env.ANDROID_SDK_ROOT && !existsSync(join(project, "local.properties"))) {
+    console.error("Set ANDROID_HOME to your Android SDK (or write sdk.dir=… in android/local.properties)."); process.exit(1);
+  }
+  mkdirSync(KEY_DIR, { recursive: true, mode: 0o700 });
+  const ks = join(KEY_DIR, "release.p12"), ksInfo = join(KEY_DIR, "release.json");
+  if (!existsSync(ks)) {
+    const pass = randomBytes(24).toString("base64url");
+    const kt = Bun.spawnSync(["keytool", "-genkeypair", "-keystore", ks, "-storetype", "PKCS12", "-alias", "agents-away",
+      "-keyalg", "RSA", "-keysize", "3072", "-validity", "10000", "-dname", "CN=Agents Away (built on this PC)",
+      "-storepass:env", "AWAY_KS_PASS", "-keypass:env", "AWAY_KS_PASS"], { env: { ...process.env, AWAY_KS_PASS: pass }, stdout: "ignore", stderr: "pipe" });
+    if (kt.exitCode !== 0) { console.error("keytool failed: " + kt.stderr.toString().trim()); rmSync(ks, { force: true }); process.exit(1); }
+    writeFileSync(ksInfo, JSON.stringify({ password: pass, alias: "agents-away" }), { mode: 0o600 });
+    console.log(`Created the app's signing key: ${ks}\nKeep it (and ${basename(ksInfo)}) safe and backed up: updates must be signed with the same key.`);
+  }
+  const { password, alias } = JSON.parse(readFileSync(ksInfo, "utf8"));
+  console.log("Building the Android app (the first build downloads Gradle and takes a few minutes)…");
+  const b = Bun.spawn(["./gradlew", "assembleRelease", "--console=plain", "-q"], {
+    cwd: project, stdout: "inherit", stderr: "inherit",
+    env: { ...process.env, AWAY_KEYSTORE: ks, AWAY_KEYSTORE_PASSWORD: password, AWAY_KEY_ALIAS: alias },
+  });
+  if ((await b.exited) !== 0) { console.error("The build failed (see above)."); process.exit(1); }
+  const out = join(project, "app/build/outputs/apk/release/app-release.apk");
+  if (!existsSync(out)) { console.error(`No signed APK at ${out}.`); process.exit(1); }
+  const bytes = readFileSync(out);
+  const version = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
+  mkdirSync(APK_DIR, { recursive: true, mode: 0o700 });
+  writeFileSync(APK, bytes);
+  const meta = { version, sha256: createHash("sha256").update(bytes).digest("hex"), size: bytes.length, builtAt: Date.now() };
+  writeFileSync(APK_META, JSON.stringify(meta));
+  console.log(`\nThe setup page now offers the Android app ${version} (${(meta.size / 1e6).toFixed(1)} MB).`);
+  await apk("status");
+  console.log("On the phone: open the download link, install (allow your browser to install apps when asked), then in");
+  console.log("the app scan the pairing code from agents-away pair.");
+}
+
 async function qr(text: string) {
   const p = Bun.spawn(["qrencode", "-t", "ansiutf8", "-m", "2", text], { stdout: "inherit", stderr: "inherit" });
   await p.exited;
@@ -283,11 +348,11 @@ async function pair(args: string[] = []) {
       `  ${join(dirname(realpathSync(import.meta.path)), "agents-away-certs")} && systemctl --user restart agents-away`);
     process.exit(1);
   }
-  let code: string, ttl: number;
+  let code: string, ttl: number, profile = "";
   try {
     const j = await (await call("/pair-code", { method: "POST" })).json() as any;
     if (!j.code) throw new Error(j.error ?? "no code");
-    code = j.code; ttl = j.expiresInSec;
+    code = j.code; ttl = j.expiresInSec; profile = j.profile ?? "";
   } catch { console.error("Agents Away server isn't running — start it with: systemctl --user start agents-away"); process.exit(1); }
   const mark = (a: { ip: string }) => (ok(a.ip) ? "" : "  \x1b[2m(not in the certificate)\x1b[0m");
   console.log("\n\x1b[33m⚠ The pairing link below signs a phone in with full control of your sessions (typing, approving\n  commands). Use it only on your own phone, over your own LAN or VPN. Never expose Agents Away to the internet.\x1b[0m");
@@ -296,9 +361,14 @@ async function pair(args: string[] = []) {
   const fp = caFingerprint();
   if (fp) console.log(`   Before installing, check the certificate's SHA-256 fingerprint on the phone matches:\n   ${fp}`);
   await qr(`http://${pick.ip}:${ONBOARD}/`);
+  // fp + n are for the Android app (it trusts this CA by its fingerprint, and names the profile); a browser
+  // opening the link ignores them.
+  const extra = `${fp ? `&fp=${fp.replace(/:/g, "").toLowerCase()}` : ""}${profile ? `&n=${encodeURIComponent(profile)}` : ""}`;
   console.log(`\n2) Then open the pairing link — it works once, within ${Math.round(ttl / 60)} minutes:`);
-  for (const a of list) console.log(`   https://${a.ip}:${HTTPS}/pair?t=${code}   (${a.name})${mark(a)}`);
-  await qr(`https://${pick.ip}:${HTTPS}/pair?t=${code}`);
+  for (const a of list) console.log(`   https://${a.ip}:${HTTPS}/pair?t=${code}${extra}   (${a.name})${mark(a)}`);
+  await qr(`https://${pick.ip}:${HTTPS}/pair?t=${code}${extra}`);
+  const app = apkMeta();
+  console.log(`   Android app: skip step 1 and scan this second code from the app (⊕ Add a PC).${app ? `\n   Get the app from the setup page, or http://${pick.ip}:${ONBOARD}/agents-away.apk  (SHA-256 ${app.sha256.slice(0, 16)}…)` : ""}`);
   const others = list.filter((a) => a.ip !== pick.ip).map((a) => a.name);
   console.log(`   The QR codes are for ${pick.name} (${pick.ip}).${others.length ? ` For another one: agents-away pair ${others[0]}` : ""}`);
   console.log("   Each address is paired separately (run agents-away pair again for another phone or address).");
@@ -397,6 +467,7 @@ switch (cmd) {
   case "review": await review(rest); break;
   case "notify": await notify(rest); break;
   case "pair": await pair(rest); break;
+  case "apk": await apk(rest[0]); break;
   case "status": await status(); break;
   default: usage();
 }

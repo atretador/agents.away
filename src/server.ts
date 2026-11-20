@@ -3,7 +3,7 @@ import { existsSync, statSync, openSync, readSync, closeSync, readFileSync } fro
 import { timingSafeEqual } from "node:crypto";
 import { hostname } from "node:os";
 import type { ServerWebSocket } from "bun";
-import { config, saveConfig, CERT_DIR, PORTS, TMUX_SOCKET, HOME, DATA_DIR, writeJson, CFG_DIR } from "./config";
+import { config, saveConfig, CERT_DIR, PORTS, TMUX_SOCKET, HOME, DATA_DIR, writeJson, readJson, CFG_DIR } from "./config";
 import { mkdirSync } from "node:fs";
 const UPLOAD_DIR = join(DATA_DIR, "uploads");
 mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -16,6 +16,7 @@ import {
 import { detectAskForm, answerAsk, sameQuestion, type AskAnswer } from "./tmux";
 import { askQuestions, pendingAsk, isSessionId, type AskQuestion } from "./claude";
 import { onToolHook, toolForScreen, toolLine } from "./approval";
+import { setPushTap, type PushPayload } from "./push";
 import { addSubscription, removeSubscription, pushAll, subscriptionCount, type PushPayload } from "./push";
 import * as R from "./reviews";
 import { getPref, setPref, gitChanges, localImage, search } from "./extras";
@@ -240,6 +241,38 @@ function shouldPush(s: Session | undefined, force = false) {
   return true;
 }
 
+/** This PC's name in the apps (a profile in the Android app). */
+const profileName = () => config.settings.profileName || hostname();
+
+// ───────── notification listeners (the Android app's own connection, instead of Web Push) ─────────
+setPushTap((p) => {
+  let n = 0;
+  for (const ws of clients) if (ws.data.listen) { try { ws.send(JSON.stringify({ type: "notify", ...p })); n++; } catch {} }
+  return n;
+});
+/** What still needs the user, as notifications: sent when a listener (re)connects, so nothing is lost while
+ *  the phone was offline. The app skips the ones it has already shown. */
+function pendingNotifications(): PushPayload[] {
+  const out: PushPayload[] = [];
+  for (const s of sessions.values()) {
+    if (s.status !== "waiting" || getPref(s.id).muted) continue;
+    const id = s.id, url = `/#/s/${id}`, title = displayName(s);
+    if (s.ask) out.push({ kind: "attention", sessionId: id, tag: "s-" + id, title, body: askLine(s.ask), url, actions: [{ action: "open", title: "Answer" }] });
+    else if (s.prompt) {
+      const body = s.prompt.tool ? toolLine(s.prompt.tool) : s.prompt.form ? "Question: " + s.prompt.question : s.prompt.question;
+      const approve = !s.prompt.form && (s.tmux || s.kind === "opencode");
+      out.push({ kind: "attention", sessionId: id, tag: "s-" + id, promptKey: s.kind === "opencode" ? s.permId : s.prompt.key, title, body, url,
+        actions: approve ? [{ action: "approve", title: "Allow" }, { action: "open", title: "Open" }] : [{ action: "open", title: "Open" }] });
+    } else if (s.attention) out.push({ kind: "attention", sessionId: id, tag: "s-" + id, title, body: s.attention.message, url, actions: [{ action: "open", title: "Open" }] });
+  }
+  for (const r of R.listReviews()) {
+    if (r.status !== "pending") continue;
+    out.push({ kind: "review", reviewId: r.id, tag: "r-" + r.id, title: `Review: ${r.title}`, body: r.message || `${r.files.length} file(s) to look at`,
+      url: `/#/review/${r.id}`, actions: [{ action: "review-approve", title: "Approve" }, { action: "open", title: "Comment" }] });
+  }
+  return out;
+}
+
 function plain(md: string, n = 220) {
   const t = md.replace(/```[\s\S]*?```/g, "[code]").replace(/[`*_#>|]/g, "").replace(/\[(.*?)\]\(.*?\)/g, "$1").replace(/\s+/g, " ").trim();
   return t.length > n ? t.slice(0, n - 1) + "…" : t;
@@ -412,7 +445,7 @@ async function deliverReview(r: R.Review) {
 // ───────────────────────── websocket ─────────────────────────
 
 type OcWatch = { sigs: string[]; dirty: boolean; lastPoll: number; queue: string; busy: boolean; termAt?: number; termBusy?: boolean };
-type WsData = { deviceKey?: string; watch: { id: string; chat: boolean; term: boolean; offset: number; lastTerm: string; oc?: OcWatch } | null; visible: boolean };
+type WsData = { deviceKey?: string; watch: { id: string; chat: boolean; term: boolean; offset: number; lastTerm: string; oc?: OcWatch } | null; visible: boolean; listen?: boolean };
 
 const isOc = (id: string) => sessions.get(id)?.kind === "opencode" || id.startsWith("ses_");
 
@@ -629,6 +662,7 @@ async function api(req: Request, url: URL, deviceKey: string): Promise<Response>
       settings: config.settings,
       push: { publicKey: config.vapid.publicKey, subscribers: subscriptionCount() },
       host: hostname(),
+      profile: profileName(),
       version: VERSION,
     });
   }
@@ -954,6 +988,7 @@ async function api(req: Request, url: URL, deviceKey: string): Promise<Response>
     for (const k of ["quietWhenActive", "notifyOnStop", "notifyOnAttention"] as const) if (typeof b[k] === "boolean") config.settings[k] = b[k];
     if (typeof b.activeWindowSec === "number") config.settings.activeWindowSec = Math.max(0, Math.min(3600, b.activeWindowSec));
     if (typeof b.signInDays === "number") config.settings.signInDays = Math.max(1, Math.min(365, Math.round(b.signInDays)));
+    if (typeof b.profileName === "string") config.settings.profileName = b.profileName.replace(/[\x00-\x1f\x7f]/g, "").trim().slice(0, 40);
     saveConfig();
     return json({ settings: config.settings });
   }
@@ -1062,6 +1097,7 @@ Bun.serve<WsData>({
         return serveImage(req, fp, type, url.searchParams.get("w"), true);
       }
       if (PUBLIC_PATHS.has(p)) return (await serveStatic(p))!;
+      if (p === "/agents-away-ca.crt") return new Response(Bun.file(join(CERT_DIR, "ca.crt")), { headers: { "content-type": "application/x-x509-ca-cert" } });
       if (!auth.ok) {
         if (p.startsWith("/api") || p === "/ws") return err("not paired", 401);
         return (await serveStatic("/unpaired.html"))!;
@@ -1118,6 +1154,12 @@ Bun.serve<WsData>({
         const t = readTail(path, Number(m.before), 100);
         ws.send(JSON.stringify({ type: "older", id: m.id, items: t.items, start: t.start }));
       } else if (m.type === "ping") ws.send('{"type":"pong"}');
+      else if (m.type === "listen") {
+        // The Android app's notification connection: from now on it gets every notification on this socket,
+        // starting with whatever is still waiting.
+        ws.data.listen = true;
+        for (const n of pendingNotifications()) ws.send(JSON.stringify({ type: "notify", replay: true, ...n }));
+      }
     },
   },
 });
@@ -1141,7 +1183,7 @@ Bun.serve({
         if (ev) onHook(ev).catch((e) => console.error("hook", e));
         return json({ ok: true });
       }
-      if (p === "/pair-code" && req.method === "POST") return json(Auth.newPairCode());
+      if (p === "/pair-code" && req.method === "POST") return json({ ...Auth.newPairCode(), profile: profileName() });
       if (p === "/status") return json({ sessions: publicSessions(), subscribers: subscriptionCount() });
       if (p === "/notify" && req.method === "POST") {
         const b = await req.json();
@@ -1232,7 +1274,25 @@ Bun.serve({
       });
     }
     if (url.pathname === "/page-i18n.js") return (await serveStatic("/page-i18n.js"))!;
-    const html = (await Bun.file(join(PUBLIC, "onboard.html")).text()).replaceAll("{{HTTPS}}", `https://${url.hostname}:${PORTS.https}/`);
+    // The Android app, when one was built on this PC (agents-away apk build).
+    const apk = join(DATA_DIR, "android", "agents-away.apk");
+    const apkInfo = readJson<{ version?: string; sha256?: string } | null>(join(DATA_DIR, "android", "agents-away.json"), null);
+    const hasApk = !!apkInfo?.sha256 && existsSync(apk);
+    if (url.pathname === "/agents-away.apk") {
+      if (!hasApk) return new Response("No Android app has been built on this PC (agents-away apk build).", { status: 404 });
+      return new Response(Bun.file(apk), { headers: { "content-type": "application/vnd.android.package-archive", "content-disposition": `attachment; filename="agents-away-${String(apkInfo!.version ?? "app").replace(/[^\w.-]/g, "")}.apk"`, "cache-control": "no-cache" } });
+    }
+    // Two paths when there is an app: preselect it on Android, the web app elsewhere; open this phone's steps.
+    const ua = req.headers.get("user-agent") ?? "";
+    const android = /Android/i.test(ua), ios = /iPhone|iPad|iPod/i.test(ua);
+    const size = hasApk ? `${(Bun.file(apk).size / 1e6).toFixed(1)} MB` : "";
+    const html = (await Bun.file(join(PUBLIC, "onboard.html")).text())
+      .replace(/<!--APK-->([\s\S]*?)<!--\/APK-->/g, (_, block) => (hasApk ? block : ""))
+      .replaceAll("{{HTTPS}}", `https://${url.hostname}:${PORTS.https}/`)
+      .replaceAll("{{APK_SHA}}", apkInfo?.sha256 ?? "").replaceAll("{{APK_SIZE}}", size)
+      .replaceAll("{{APK_VERSION}}", String(apkInfo?.version ?? "").replace(/[^\w.-]/g, ""))
+      .replaceAll("{{APP_CHECKED}}", android ? "checked" : "").replaceAll("{{WEB_CHECKED}}", android ? "" : "checked")
+      .replaceAll("{{ANDROID_OPEN}}", android || !ios ? "open" : "").replaceAll("{{IOS_OPEN}}", ios ? "open" : "");
     return new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } });
   },
 });

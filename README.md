@@ -9,10 +9,12 @@ it needs you or finishes, and let Claude send you screenshots to approve, all fr
 
 Agents Away is self-hosted. It runs on your PC and your phone reaches it over your home network or your
 own VPN (WireGuard, Tailscale…). Nothing goes through a third-party server. The one exception is
-push notifications, which travel end-to-end encrypted through your phone browser's push service
-(Google's on Android).
+the web app's push notifications, which travel end-to-end encrypted through your phone browser's push
+service (Google's on Android).
 
-It's a web app (PWA) that you add to your home screen, not an app store download.
+It's a web app (PWA) that you add to your home screen, not an app store download. On Android there is
+also an optional [Agents Away app](#android-app-several-pcs) that switches between several PCs and gets
+its notifications straight from them, with no push service in between.
 
 <table>
   <tr>
@@ -160,6 +162,37 @@ your phone. When installing it, compare the SHA-256 fingerprint the phone shows 
 restart agents-away`; the phone keeps the same CA. Installs from before 0.1.0 have a CA without name
 constraints: `bin/agents-away-certs --new-ca`, restart, then replace the CA on the phone.
 
+### Android app (several PCs)
+
+The web app is all you need for one PC. If you run Agents Away on several (a homelab, a laptop…), the
+Android app keeps one profile per PC and switches between them from the PC name in the header. Each
+profile shows that PC's own web app, so everything works the same.
+
+- **Install:** either let your PC serve it, or download it from GitHub. Android 10 or newer.
+  - *From your PC:* run `agents-away apk build` once (needs JDK 17+ and the Android SDK). The setup page
+    (`http://<pc-ip>:7440`) then offers **Android app** next to **Web app**, with the download and its
+    SHA-256 (`agents-away apk status` shows it on the PC). The app is signed with a key created on the
+    first build in `~/.config/agents-away/android/`; back it up, since updates must use the same key.
+  - *From GitHub:* download `agents-away-vX.Y.Z.apk` from the
+    [releases](https://github.com/atretador/agents.away/releases) and check it against the `.sha256` next
+    to it.
+
+  An APK built on your PC and one from GitHub are signed with different keys, so one can't update the
+  other: stick to one source (or uninstall first). Allow your browser to install apps when Android asks.
+- **Add a PC:** run `agents-away pair` on the PC and scan the **second** QR code (the pairing link) with
+  **Scan QR code**, or paste the link. No certificate install: the link carries the fingerprint of the
+  PC's CA, and the app trusts that CA for that PC only. Pairing the same PC again over another address
+  (`agents-away pair wg0`) adds the address to the same profile; the app uses whichever one answers.
+- **Notifications** come over the app's own connection to each PC (a quiet "Connected to …"
+  notification shows it's running; you can hide it in Android's settings). Allow the app to run without
+  battery restrictions when it asks, or Android may pause the connection while the phone sleeps. What
+  was waiting while the phone was offline arrives when it reconnects. **Allow** and **Approve** work
+  straight from the notification.
+- **Name a PC** under **⚙ → This PC** in its web app (default: its hostname).
+- **Remove a PC** from the switcher: the app forgets it and the PC signs the phone out.
+
+To build it yourself: `cd android && ./gradlew assembleDebug` (JDK 17 and the Android SDK).
+
 ## Using it
 
 **Sessions must run inside Agents Away's tmux** for the phone to type into them. After installing, just
@@ -229,8 +262,9 @@ it there. Not yet supported: search.
 
 | Command | |
 |---|---|
-| `agents-away pair [interface\|ip]` | Pairing QR codes / links for a new phone (QR for the LAN, or e.g. `wg0`) |
+| `agents-away pair [interface\|ip]` | Pairing QR codes / links for a new phone or the Android app (QR for the LAN, or e.g. `wg0`) |
 | `agents-away status` | Server status and current sessions |
+| `agents-away apk build\|status\|remove` | Build the Android app on this PC and offer it on the setup page |
 | `agents-away attach` / `agents-away a` | Attach this terminal to a Agents Away tmux session |
 | `agents-away review …` / `agents-away notify …` | See above |
 | `agents-away hooks install\|uninstall\|status` | Manage the Claude Code hooks |
@@ -273,6 +307,10 @@ at the top). Within that assumption:
   `~/.config/agents-away/config.json`, which never leaves the PC.
 - Keep `~/.config/agents-away` private. It holds the local token, the push keys, device sign-ins and the
   CA's private key.
+- **Android app:** each profile trusts only its own PC's CA (checked against the fingerprint in the
+  pairing link) and only for that PC's addresses; the phone's system certificate store isn't used or
+  changed. Sign-ins stay in the app's private storage and are excluded from backups. Only the PC's own
+  pages can call the app's native features (switch PC, notification settings).
 - The setup page on port 7440 is plain HTTP and serves only the public CA certificate and
   instructions.
 - What's **not** covered: exposure to the internet, untrusted devices on your LAN that obtain the
@@ -294,7 +332,7 @@ tmux pane through the process's terminal, and:
   checking the menu is still on screen. Question forms are filled in the same way (arrows, Space,
   typing into "Type something"), re-reading the screen after every step.
 - **Notifications:** Claude Code hooks (`agents-away hook`) report "needs permission" and "finished" to
-  the server, which sends Web Push.
+  the server, which sends Web Push, and the same events down the WebSocket of any connected Android app.
 
 See [AGENTS.md](AGENTS.md) for the code layout.
 
