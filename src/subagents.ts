@@ -10,7 +10,7 @@ import { readRange, fileSize, readTail, parseLines, type Item } from "./claude";
 // /compact boundary to its postTokens. The transcript doesn't record the window size, so it comes
 // from the model id: haiku and pre-4.6 Opus/Sonnet have 200k unless the id says [1m]; newer
 // models run with 1M in Claude Code. Seeing more than 200k in use also proves a 1M window.
-export type Context = { pct: number; tokens: number; size: number; model: string | null };
+export type Context = { pct: number; tokens: number; size: number; model: string | null; effort?: string | null };
 
 export function windowSize(model: string | null, tokens: number) {
   const m = (model ?? "").toLowerCase();
@@ -35,7 +35,7 @@ export function contextUsage(path: string | null): Context | null {
       const l = lines[i];
       if (!l.startsWith('{"parentUuid"') || l.includes('"isSidechain":true')) continue;
       if (l.includes('"subtype":"compact_boundary"')) {
-        try { const o = JSON.parse(l); const t = Math.trunc(Number(o.compactMetadata?.postTokens) || 0); ctx = { pct: 0, tokens: t, size: 0, model: c?.ctx?.model ?? null }; } catch {}
+        try { const o = JSON.parse(l); const t = Math.trunc(Number(o.compactMetadata?.postTokens) || 0); ctx = { pct: 0, tokens: t, size: 0, model: c?.ctx?.model ?? null, effort: c?.ctx?.effort ?? null }; } catch {}
         if (ctx) break;
       }
       if (!l.includes('"type":"assistant"') || !l.includes('"usage"')) continue;
@@ -44,7 +44,8 @@ export function contextUsage(path: string | null): Context | null {
       const u = o.message?.usage, model = o.message?.model;
       if (o.type !== "assistant" || !u || model === "<synthetic>") continue;
       const t = (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0);
-      ctx = { pct: 0, tokens: t, size: 0, model: model ?? null };
+      // Assistant lines carry the effort level the reply was made with (low|medium|high|xhigh|max).
+      ctx = { pct: 0, tokens: t, size: 0, model: model ?? null, effort: typeof o.effort === "string" ? o.effort : null };
       break;
     }
     if (size <= span) break;

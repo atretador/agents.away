@@ -49,7 +49,7 @@ const sessions = [
   {
     ...base, id: "s-cache", name: "cc-api-2", title: "Cache product listings", cwd: "/home/demo/code/api", home: "~/code/api",
     status: "waiting", activityAt: now - 3 * min, startedAt: now - 25 * min,
-    context: { pct: 22, tokens: 220_000, size: 1_000_000, model: "claude-fable-5-2" },
+    context: { pct: 22, tokens: 220_000, size: 1_000_000, model: "claude-fable-5-2", effort: "medium" },
     prompt: {
       question: "Would you like to proceed?",
       context: ["Ready to code?", "Here is Claude's plan:"],
@@ -85,13 +85,13 @@ const sessions = [
   {
     ...base, id: "ses_demo1", name: "opencode", title: "Migrate billing to the new invoices table", cwd: "/home/demo/code/billing", home: "~/code/billing",
     status: "idle", activityAt: now - 26 * min, startedAt: now - 90 * min, kind: "opencode", agentName: "build", tmux: null,
-    modelName: "deepseek-v4.1-flash-free",
+    modelName: "deepseek-v4.1-flash-free", effort: "high",
     context: { pct: 41, tokens: 53_000, size: 128_000, model: "deepseek-v4.1-flash-free" }, agents: { total: 1, running: 0 },
   },
   {
     ...base, id: "ses_demo2", name: "opencode", title: "Upgrade the date library", cwd: "/home/demo/code/billing", home: "~/code/billing",
     status: "waiting", activityAt: now - 1 * min, startedAt: now - 9 * min, kind: "opencode", agentName: "build", tmux: null,
-    modelName: "deepseek-v4.1-flash-free",
+    modelName: "deepseek-v4.1-flash-free", effort: "high",
     context: { pct: 18, tokens: 23_000, size: 128_000, model: "deepseek-v4.1-flash-free" },
     prompt: {
       question: "Allow bash?",
@@ -109,7 +109,7 @@ const sessions = [
 ];
 
 // Context-window use and subagent counts (shown in the session header).
-const ctx = (pct: number, size = 1_000_000) => ({ pct, tokens: Math.round((pct / 100) * size), size, model: "claude-opus-5-5" });
+const ctx = (pct: number, size = 1_000_000) => ({ pct, tokens: Math.round((pct / 100) * size), size, model: "claude-opus-5-5", effort: "xhigh" });
 const extra: Record<string, any> = {
   "s-tests": { context: ctx(38), agents: { total: 3, running: 1 } },
   "s-plan": { context: ctx(12), agents: { total: 1, running: 0 } },

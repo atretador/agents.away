@@ -65,6 +65,8 @@ type Session = {
   kind?: "claude" | "opencode";
   agentName?: string;
   modelName?: string;
+  /** Reasoning effort: Claude Code's from the transcript, OpenCode's model variant. */
+  effort?: string | null;
   permId?: string;
   /** Claude Code shows "ctrl+b to run in background" for the running command or subagent. */
   canBackground?: boolean;
@@ -100,7 +102,7 @@ function ocToSession(o: OC.OcSession): Session {
     id: o.id, pid: 0, name: o.title, title: o.title, cwd: o.cwd, context: o.context, agents: o.agents,
     status: prompt ? "waiting" : o.running ? "working" : "idle",
     tmux: null, attention: null, prompt, lastInputAt: 0, activityAt: o.updated, startedAt: o.created, doneAt: h.doneAt,
-    kind: "opencode", agentName: o.agent, modelName: o.model ? o.model.id + (o.model.variant ? ` · ${o.model.variant}` : "") : undefined,
+    kind: "opencode", agentName: o.agent, modelName: o.model?.id, effort: o.model?.variant || null,
     permId: perm?.id,
   };
 }

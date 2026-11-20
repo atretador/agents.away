@@ -646,8 +646,13 @@ mark { background: color-mix(in oklab, var(--accent) 30%, transparent); color: v
 /* row 2: tabs · alert · context · agents · (pager over model name) */
 .subbar { gap: 7px; }
 .sub-right { flex: 1 0 auto; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
-.sub-model { font: 600 10.5px var(--mono); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; letter-spacing: .02em; }
+.sub-model { font: 600 10.5px var(--mono); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 13ch; letter-spacing: .02em; }
 .sub-model:empty { display: none; }
+/* Reasoning effort, a tiny badge under the model name */
+.sub-eff { font: 700 9px/13px var(--mono); text-transform: uppercase; letter-spacing: .06em; padding: 0 5px; border-radius: 4px; color: var(--ink-3); border: 1px solid var(--line); white-space: nowrap; }
+.sub-eff:empty { display: none; }
+.sub-eff[data-level="high"] { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.sub-eff[data-level="xhigh"], .sub-eff[data-level="max"] { color: var(--bg); background: var(--accent); border-color: var(--accent); }
 .subbar .hd-ctx, .subbar .hd-agents { height: 30px; }
 .subbar.compact .seg button:not(.on) span { display: none; }
 .subbar.compact .seg button:not(.on) { padding: 6px 9px; }

@@ -482,7 +482,7 @@ function renderSession(id) {
       <button class="alert-btn" id="alertbtn" hidden aria-label="Pending actions"></button>
       <button class="hd-ctx" id="ctxbtn" hidden></button>
       <button class="hd-agents" id="agentsbtn" hidden></button>
-      <div class="sub-right"><div class="pager" id="pager"></div><div class="sub-model" id="s-model"></div></div>
+      <div class="sub-right"><div class="pager" id="pager"></div><div class="sub-model" id="s-model"></div><div class="sub-eff" id="s-eff"></div></div>
     </div>
     </div>
     <div id="body" style="flex:1;display:flex;flex-direction:column"></div>
@@ -831,7 +831,9 @@ function renderDock(s) {
       ta.value = ""; delete S.drafts[s.id]; atts.length = 0; drawAtts(); grow();
       // Busy session: show it as queued right away (the transcript can lag while Claude is streaming).
       const live = S.sessions.find((x) => x.id === s.id);
-      if (live?.status === "working" && S.chat?.id === s.id) {
+      // /btw is answered at once, beside the current task, and only on Claude Code's screen.
+      if (/^\/btw\s/.test(text)) toast("Asked. The answer shows in the Terminal tab");
+      else if (live?.status === "working" && S.chat?.id === s.id) {
         const q = queuedEl(text, S.chat, true);
         if (q) { S.chat.queue.appendChild(q); setTimeout(() => q.classList.contains("local") && q.remove(), 120_000); }
       }
@@ -1460,7 +1462,10 @@ function openSessionMenu(id) {
 }
 
 // ───────── commands & quick replies ─────────
+// [command, description, dangerous?, takes text?]. Commands that take text go into the message box instead
+// of being sent right away.
 const COMMANDS = [
+  ["/btw", "Ask a side question without interrupting the current task (answer shows in the Terminal tab)", false, true],
   ["/compact", "Summarise the conversation to free up context"],
   ["/context", "Show how full the context window is"],
   ["/model", "Switch model"],
@@ -1474,7 +1479,7 @@ function quickReplies() {
 function openPalette(s) {
   const isOC = s.kind === "opencode";
   const { el, close } = sheet(`${isOC ? "" : "<h3>Commands</h3>"}
-    <div class="pal">${(isOC ? [] : COMMANDS).map(([c, d, danger]) => `<button class="list-row" data-cmd="${c}" ${danger ? 'data-danger="1"' : ""}><div class="grow"><div class="t" style="font-family:var(--mono)">${c}</div><div class="s" style="font-family:var(--font)">${esc(d)}</div></div></button>`).join("")}</div>
+    <div class="pal">${(isOC ? [] : COMMANDS).map(([c, d, danger, arg]) => `<button class="list-row" data-cmd="${c}" ${danger ? 'data-danger="1"' : ""} ${arg ? 'data-arg="1"' : ""}><div class="grow"><div class="t" style="font-family:var(--mono)">${c}</div><div class="s" style="font-family:var(--font)">${esc(d)}</div></div></button>`).join("")}</div>
     <h3 style="margin-top:${isOC ? 0 : 20}px">Quick replies</h3>
     <div class="quick" id="quick"></div>
     <div style="display:flex;gap:8px;margin-top:10px"><input id="qnew" class="qin" placeholder="Add a quick reply…"><button class="btn" id="qadd">Add</button></div>
@@ -1484,6 +1489,12 @@ function openPalette(s) {
     catch (e) { toast(e.message, true); }
   };
   el.querySelectorAll("[data-cmd]").forEach((b) => (b.onclick = async () => {
+    if (b.dataset.arg) {
+      close();
+      const ta = $("#msg");
+      if (ta) { ta.value = b.dataset.cmd + " "; ta.dispatchEvent(new Event("input")); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+      return;
+    }
     if (b.dataset.danger && !(await ask(`Send ${b.dataset.cmd}?`, "This can't be undone.", "Send", true))) return;
     send1(b.dataset.cmd);
   }));
@@ -2107,6 +2118,8 @@ function renderHeadExtras(s) {
   if (!cb || !ab) return;
   const md = $("#s-model");
   if (md) { const name = shortModel(s.context?.model ?? s.modelName); md.textContent = name; md.title = s.context?.model ?? s.modelName ?? ""; }
+  const ef = $("#s-eff"), effort = s.effort ?? s.context?.effort ?? "";
+  if (ef && ef.textContent !== effort) { ef.textContent = effort; ef.dataset.level = effort.toLowerCase(); ef.title = effort ? `Reasoning effort: ${effort}` : ""; }
   requestAnimationFrame(fitSubbar);
   const c = s.context;
   cb.hidden = !c;

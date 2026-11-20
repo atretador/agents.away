@@ -31,9 +31,9 @@ describe("contextUsage", () => {
   test("uses the newest main-chain assistant usage (input + cache, not output)", () => {
     const f = transcript(
       L.assistant([L.text("old")], {}, usage(1000, 9000)),
-      L.assistant([L.text("new")], {}, usage(2000, 140_000, 8000, 99_999)),
+      L.assistant([L.text("new")], { effort: "high" }, usage(2000, 140_000, 8000, 99_999)),
     );
-    expect(contextUsage(f)).toEqual({ tokens: 150_000, size: 1_000_000, pct: 15, model: "claude-opus-5-5" });
+    expect(contextUsage(f)).toEqual({ tokens: 150_000, size: 1_000_000, pct: 15, model: "claude-opus-5-5", effort: "high" });
   });
 
   test("ignores subagent and synthetic messages", () => {
