@@ -423,4 +423,4 @@ export async function sessionExists(name: string) {
 /** Claude Code offers to move the running shell command (or subagent) to the background:
  *  "(ctrl+b to run in background)", in tmux "(ctrl+b ctrl+b (twice) to run in background)". One C-b sent
  *  with send-keys reaches Claude Code directly (no tmux prefix in the way), so that's all it takes. */
-export const canBackground = (screen: string) => /\(ctrl\+b[^)]*to run in background\)/i.test(screen);
+export const canBackground = (screen: string) => /ctrl\+b[^\n]*to run in background/i.test(screen);

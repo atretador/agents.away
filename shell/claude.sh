@@ -31,5 +31,7 @@ claude() {
   local bin
   bin=$(type -P claude 2>/dev/null || whence -p claude 2>/dev/null)
   [ -n "$bin" ] || { echo "claude: not found on PATH" >&2; return 127; }
-  tmux -L "$sock" -f "$conf" new-session -s "$name" -c "${PWD//#/##}" "${envargs[@]}" -- "$bin" "$@"
+  # tmux expands #(...) in -c: double every "#" (a variable pattern, so bash and zsh read it the same).
+  local hash='#'
+  tmux -L "$sock" -f "$conf" new-session -s "$name" -c "${PWD//$hash/##}" "${envargs[@]}" -- "$bin" "$@"
 }
