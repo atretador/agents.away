@@ -76,7 +76,11 @@ User-facing docs: [README.md](README.md). This file is for coding agents changin
 - **Hooks:** Claude Code runs `agents-away hook` (stdin JSON) on Notification, Stop, UserPromptSubmit,
   PostToolUse and PreToolUse (AskUserQuestion only). The CLI forwards it to the local API `/hook`. Install with `agents-away hooks install`.
 - **Reviews:** `agents-away review` long-polls `/review/:id/wait`. If it times out, the answer is later
-  bracketed-pasted into the session as `[Phone review of "…" (id …)] …`.
+  bracketed-pasted into the session as `[Phone review of "…" (id …)] …` (OpenCode: posted as a message;
+  the CLI finds the session from `CLAUDE_CODE_SESSION_ID` / `OPENCODE_SESSION_ID`).
+- **Skill:** `agents-away skill install|uninstall|status [--claude|--opencode]` copies
+  `skills/agents-away-review` to `~/.claude/skills`; OpenCode loads that folder too, so it only gets its
+  own copy (`~/.config/opencode/skills`) when it can't see the Claude one.
 - **OpenCode:** polled every 5 s plus the SSE `/api/event` stream. Chat sync diffs item signatures
   and sends either the new suffix or a reset. Its OpenAPI spec is at `/openapi.json` on its server.
   - *Question forms* (`question` tool, event `form.created`/`replied`/`cancelled`): pending ones from

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // Agents Away CLI: Claude Code hook forwarding, image reviews, notifications, pairing.
-import { readFileSync, existsSync, statSync } from "node:fs";
+import { readFileSync, existsSync, statSync, mkdirSync, writeFileSync, rmSync, realpathSync } from "node:fs";
 import { homedir, networkInterfaces } from "node:os";
 import { join, basename, resolve, dirname } from "node:path";
 
@@ -24,6 +24,66 @@ async function call(path: string, init: RequestInit = {}, timeoutMs = 3000) {
 
 const [cmd, ...rest] = process.argv.slice(2);
 
+// ── agents-away-review skill for Claude Code and OpenCode ──
+// Claude Code: ~/.claude/skills/<name>. OpenCode: ~/.config/opencode/skills/<name>, but OpenCode also
+// loads ~/.claude/skills itself (unless OPENCODE_DISABLE_CLAUDE_CODE[_SKILLS] is set), so a second copy
+// is only written when OpenCode can't already see the Claude one (or with --force).
+const SKILL = "agents-away-review";
+function skillSource() {
+  const p = join(dirname(realpathSync(import.meta.path)), "..", "skills", SKILL, "SKILL.md");
+  if (!existsSync(p)) { console.error(`agents-away skill: can't find ${p}`); process.exit(1); }
+  return readFileSync(p, "utf8");
+}
+const XDG_CFG = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
+const SKILL_DIRS = { claude: join(homedir(), ".claude", "skills", SKILL), opencode: join(XDG_CFG, "opencode", "skills", SKILL) };
+const hasClaude = () => existsSync(join(homedir(), ".claude"));
+const hasOpenCode = () => existsSync(join(XDG_CFG, "opencode")) || Bun.which("opencode") !== null;
+const ocReadsClaude = () => !/^(1|true)$/i.test(process.env.OPENCODE_DISABLE_CLAUDE_CODE ?? "") && !/^(1|true)$/i.test(process.env.OPENCODE_DISABLE_CLAUDE_CODE_SKILLS ?? "");
+const skillFile = (a: "claude" | "opencode") => join(SKILL_DIRS[a], "SKILL.md");
+function skillState(a: "claude" | "opencode", src: string) {
+  if (!existsSync(skillFile(a))) return "missing";
+  return readFileSync(skillFile(a), "utf8") === src ? "current" : "outdated";
+}
+
+async function skill(args: string[]) {
+  const action = args.find((a) => !a.startsWith("-")) ?? "status";
+  const only = args.includes("--claude") ? "claude" : args.includes("--opencode") ? "opencode" : null;
+  const force = args.includes("--force");
+  const src = skillSource();
+  const write = (a: "claude" | "opencode") => { mkdirSync(SKILL_DIRS[a], { recursive: true }); writeFileSync(skillFile(a), src); console.log(`${a === "claude" ? "Claude Code" : "OpenCode"}: installed ${skillFile(a)}`); };
+  if (action === "install") {
+    const doClaude = only ? only === "claude" : hasClaude();
+    const doOc = only ? only === "opencode" : hasOpenCode();
+    if (!doClaude && !doOc) { console.log("Neither Claude Code (~/.claude) nor OpenCode was found. Use --claude or --opencode to install anyway."); return; }
+    if (doClaude) write("claude");
+    if (doOc) {
+      if (existsSync(skillFile("claude")) && ocReadsClaude() && !force) {
+        if (existsSync(skillFile("opencode"))) { rmSync(SKILL_DIRS.opencode, { recursive: true, force: true }); console.log("OpenCode: removed its separate copy (it loads the Claude Code one)"); }
+        console.log(`OpenCode: uses ${skillFile("claude")} (OpenCode loads Claude Code skills too)`);
+      } else write("opencode");
+    }
+    return;
+  }
+  if (action === "uninstall") {
+    for (const a of ["claude", "opencode"] as const) {
+      if (only && only !== a) continue;
+      if (existsSync(SKILL_DIRS[a])) { rmSync(SKILL_DIRS[a], { recursive: true, force: true }); console.log(`Removed ${SKILL_DIRS[a]}`); }
+    }
+    if (only === "claude" && hasOpenCode() && !existsSync(skillFile("opencode"))) console.log("OpenCode no longer sees the skill either; run `agents-away skill install --opencode` to give it its own copy.");
+    return;
+  }
+  if (action === "status") {
+    const label = { current: "installed", outdated: "installed (older version: run `agents-away skill install`)", missing: "not installed" } as const;
+    const c = skillState("claude", src), o = skillState("opencode", src);
+    console.log(`Claude Code: ${label[c]}${c !== "missing" ? `  ${skillFile("claude")}` : ""}`);
+    if (o !== "missing") console.log(`OpenCode:    ${label[o]}  ${skillFile("opencode")}`);
+    else if (c !== "missing" && ocReadsClaude()) console.log(`OpenCode:    ${label[c]} (loads the Claude Code copy)`);
+    else console.log(`OpenCode:    not installed${hasOpenCode() ? "" : " (OpenCode not found)"}`);
+    return;
+  }
+  console.error("agents-away skill install|uninstall|status [--claude|--opencode] [--force]"); process.exit(2);
+}
+
 function usage() {
   console.log(`agents-away — phone companion for Claude Code sessions
 
@@ -40,6 +100,8 @@ function usage() {
   agents-away pair                         Show the QR codes for pairing a phone
   agents-away status                       Show what the server sees
   agents-away hooks install|uninstall|status   Manage the Claude Code hooks Agents Away needs
+  agents-away skill install|uninstall|status [--claude|--opencode]
+                                     The agents-away-review skill (lets agents send you things to review)
   agents-away hook                         (used by Claude Code hooks; reads JSON on stdin)`);
 }
 
@@ -89,7 +151,7 @@ async function review(args: string[]) {
   fd.append("pane", process.env.TMUX_PANE ?? "");
   const tmuxSock = (process.env.TMUX ?? "").split(",")[0];
   fd.append("socket", tmuxSock ? basename(tmuxSock) : "default");
-  fd.append("session_id", process.env.CLAUDE_CODE_SESSION_ID || ancestorSessionId());
+  fd.append("session_id", process.env.CLAUDE_CODE_SESSION_ID || process.env.OPENCODE_SESSION_ID || ancestorSessionId());
   if (async || wait === 0) fd.append("async", "1");
   let res: Response;
   try { res = await call("/review", { method: "POST", body: fd }, 30000); }
@@ -129,7 +191,7 @@ async function review(args: string[]) {
   console.log(
     d.deliverable
       ? `No answer yet for review ${id}. When the user responds, the answer will be typed into this session as a new message — carry on with other work or end your turn.`
-      : `No answer yet for review ${id}. This session isn't in tmux, so the answer can't be delivered automatically; ask the user to check Agents Away.`,
+      : `No answer yet for review ${id}. This session isn't in tmux (or OpenCode), so the answer can't be delivered automatically; ask the user to check Agents Away.`,
   );
 }
 
@@ -143,7 +205,7 @@ async function withdraw(id: string | undefined, rest: string[]) {
 }
 
 async function listPending() {
-  const sid = process.env.CLAUDE_CODE_SESSION_ID || ancestorSessionId();
+  const sid = process.env.CLAUDE_CODE_SESSION_ID || process.env.OPENCODE_SESSION_ID || ancestorSessionId();
   const j = await (await call(`/reviews?session=${encodeURIComponent(sid)}`)).json() as any;
   if (!j.reviews.length) { console.log(sid ? "No pending reviews from this session." : "No pending reviews."); return; }
   for (const r of j.reviews) console.log(`${r.id}  ${r.title}${r.message ? ` — ${r.message.slice(0, 80)}` : ""}  (${Math.round((Date.now() - r.createdAt) / 60000)} min ago)`);
@@ -268,6 +330,7 @@ async function hooks(sub: string | undefined) {
 
 switch (cmd) {
   case "hooks": await hooks(rest[0]); break;
+  case "skill": case "skills": await skill(rest); break;
   case "attach": case "a": await attach(rest); break;
   case "hook": await hook(); break;
   case "review": await review(rest); break;

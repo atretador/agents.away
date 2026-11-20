@@ -20,9 +20,9 @@ agents-away review -t "Short title" -m "What to check / the question" path/to/a.
   ("Marine rifle v3 — is the barrel length right now?"), not "please review".
 - By default the command **blocks up to 540 s** waiting for the answer and prints
   `Review <id>: APPROVED|CHANGES REQUESTED|REJECTED` plus `Comment: …`. Act on it.
-  Run it with a Bash timeout of at least 600000 ms.
-- If it prints "No answer yet", don't poll or resend. When the session runs in tmux the answer
-  is typed into the session later as a message starting with `[Phone review of "…" (id …)]` —
+  Give the shell command a timeout of at least 600 s (Claude Code: Bash `timeout` 600000 ms).
+- If it prints "No answer yet", don't poll or resend. When the session runs in tmux (Claude Code) or
+  in OpenCode, the answer arrives later as a message starting with `[Phone review of "…" (id …)]` —
   continue other work or end your turn and pick it up then.
 - `--async` (or `-w 0`) sends without waiting; the answer arrives later as that message.
 - Use `-w <seconds>` for a shorter wait.

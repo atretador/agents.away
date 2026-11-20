@@ -88,7 +88,7 @@ agents-away pair
    (`~/.config/agents-away/certs`);
 3. links the `agents-away` command into `~/.local/bin`, plus the short alias `aa` if that name is free;
 4. adds Agents Away's hooks to `~/.claude/settings.json`, keeping a backup and leaving your other hooks alone;
-5. installs the `agents-away-review` skill into `~/.claude/skills`, so Claude knows how to send you images;
+5. installs the `agents-away-review` skill (`agents-away skill install`), so Claude Code and OpenCode know how to send you images;
 6. installs a small `claude` wrapper for your shell (fish, bash or zsh) that starts interactive
    sessions inside a dedicated tmux server, so Agents Away can type into them (more on this below);
 7. installs and starts the `agents-away` systemd user service.
@@ -140,7 +140,7 @@ run `claude` in a new terminal as usual: the wrapper opens it inside the `agents
 
 ### Image reviews
 
-Claude uses this automatically through the `agents-away-review` skill when you ask it to ("send me the
+Claude Code and OpenCode use this automatically through the `agents-away-review` skill when you ask them to ("send me the
 render on my phone"). You can also run it yourself:
 
 ```bash
@@ -171,6 +171,7 @@ it there. Not yet supported: search.
 | `agents-away attach` / `agents-away a` | Attach this terminal to a Agents Away tmux session |
 | `agents-away review …` / `agents-away notify …` | See above |
 | `agents-away hooks install\|uninstall\|status` | Manage the Claude Code hooks |
+| `agents-away skill install\|uninstall\|status [--claude\|--opencode]` | The `agents-away-review` skill for Claude Code and OpenCode |
 | `systemctl --user restart agents-away` | Restart the server (the app reloads itself) |
 | `journalctl --user -u agents-away -f` | Server logs |
 

@@ -368,6 +368,14 @@ function reviewSummary(r: R.Review) {
 
 async function deliverReview(r: R.Review) {
   if (R.resolveWaiters(r) > 0) { r.delivered = true; R.save(r); return "cli"; }
+  if (r.deliverToSession && r.session?.id && isOc(r.session.id)) {
+    // OpenCode: post the answer as a message (queued if it's mid-step).
+    try {
+      await OC.prompt(r.session.id, `[Phone review of "${r.title}" (id ${r.id})] ${R.decisionText(r).replace("\n", " — ")}`, sessions.get(r.session.id)?.status === "working");
+      r.delivered = true; R.save(r);
+      return "session";
+    } catch (e) { console.error("deliver review (opencode)", e); return "stored"; }
+  }
   if (!r.deliverToSession || !r.session?.pane || !r.session.socket) return "stored";
   const s = r.session.id ? sessions.get(r.session.id) : undefined;
   const socket = s?.tmux?.socket ?? r.session.socket;
@@ -1135,7 +1143,7 @@ Bun.serve({
         if (!r) return err("not found", 404);
         r.deliverToSession = true; R.save(r);
         if (r.status === "answered" && !r.delivered) await deliverReview(r);
-        return json({ ok: true, deliverable: !!r.session?.pane });
+        return json({ ok: true, deliverable: !!r.session?.pane || (!!r.session?.id && isOc(r.session.id)) });
       }
       return err("not found", 404);
     } catch (e: any) {

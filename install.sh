@@ -31,7 +31,7 @@ if [[ "${1:-}" == "--uninstall" ]]; then
   rc=$(shell_rc); [[ -n "$rc" && -f "$rc" ]] && sed -i '\|# Agents Away: run claude inside tmux$|d' "$rc"
   [[ -L "$BIN/agents-away" ]] && rm -f "$BIN/agents-away"
   [[ -L "$BIN/aa" && "$(readlink "$BIN/aa")" == "$ROOT/bin/agents-away" ]] && rm -f "$BIN/aa"
-  rm -rf "$SKILL"
+  if [[ -x "$ROOT/bin/agents-away" ]] && have bun; then "$ROOT/bin/agents-away" skill uninstall || true; else rm -rf "$SKILL"; fi
   say "Done. Config, certificates and reviews are kept in $CFG and ~/.local/share/agents-away (delete them by hand if you want)."
   exit 0
 fi
@@ -70,8 +70,8 @@ case ":$PATH:" in *":$BIN:"*) ;; *) warn "$BIN is not on your PATH; add it so ho
 say "Claude Code hooks"
 "$ROOT/bin/agents-away" hooks install
 
-say "agents-away-review skill (lets Claude send you images to approve)"
-mkdir -p "$SKILL" && cp "$ROOT/skills/agents-away-review/SKILL.md" "$SKILL/SKILL.md"
+say "agents-away-review skill (lets Claude Code / OpenCode send you images to approve)"
+"$ROOT/bin/agents-away" skill install
 
 if ((NO_SHELL)); then
   say "Skipping the claude → tmux wrapper (--no-shell)"
