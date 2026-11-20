@@ -48,12 +48,14 @@ It's a web app (PWA) that you add to your home screen, not an app store download
   away" summary of what happened since you last looked.
 - **Reply** with text, photos or files. Answer menus and permission prompts with one tap. Includes a
   command palette for slash commands and your own quick replies.
+- **Claude's questions** (AskUserQuestion) as a card: every question with its options and
+  descriptions, single or multiple choice, plus "Other…" to type your own answer. Sent with one tap.
 - **Context and subagents:** the session header shows how full the context window is and the
   subagents it spawned (live running count); open one to read its own chat.
 - **Terminal:** a live view of the session's terminal, with key buttons (Esc, arrows, Ctrl-C…).
 - **Changes:** `git diff` of the session's repo.
-- **Notifications** when a session needs permission or finishes, with **Allow** right in the
-  notification. They stay quiet while you're typing at the PC.
+- **Notifications** when a session needs permission, asks you a question ("Claude is asking: …") or
+  finishes, with **Allow** right in the notification. They stay quiet while you're typing at the PC.
 - **Image reviews:** Claude runs `agents-away review shot.png` and you get the image on your phone with
   Approve / Request changes / Reject, plus a comment. The answer goes back to Claude.
 - **Start, resume and end sessions** from the phone, choosing model, effort and permission mode.
@@ -221,7 +223,8 @@ tmux pane through the process's terminal, and:
 - **Chat view:** tails the transcript.
 - **Terminal view:** `tmux capture-pane`.
 - **Replies:** bracketed-paste into the pane. Menu answers move the ❯ cursor with arrow keys after
-  checking the menu is still on screen.
+  checking the menu is still on screen. Question forms are filled in the same way (arrows, Space,
+  typing into "Type something"), re-reading the screen after every step.
 - **Notifications:** Claude Code hooks (`agents-away hook`) report "needs permission" and "finished" to
   the server, which sends Web Push.
 

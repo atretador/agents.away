@@ -58,8 +58,23 @@ User-facing docs: [README.md](README.md). This file is for coding agents changin
   the server's build id changes), `chat {reset|items, start, end}`, `older`, `term`, `queue`.
 - **Answering prompts:** re-capture the pane and verify the menu is still there before sending keys.
   Choose options by moving the ❯ cursor with arrows, never by typing digits blindly.
-- **Hooks:** Claude Code runs `agents-away hook` (stdin JSON) on Notification, Stop, UserPromptSubmit
-  and PostToolUse. The CLI forwards it to the local API `/hook`. Install with `agents-away hooks install`.
+- **AskUserQuestion (Claude Code):** `detectAskForm` (tmux.ts) recognises the form by its tab bar
+  (`←  ☐ Colour  ☒ Sizes  ✔ Submit  →`, or ` ☐ Fruit` for one question), numbered options (`[ ]`/`[✔]`
+  when multi-select), the last "Type something" row, the `Next`/`Submit` row of a multi-select, and
+  `N. Chat about this` under a separator. `detectPrompt` ignores such forms (except the "Review your
+  answers" step, which stays a normal prompt card), so the generic menu code never answers them.
+  The questions come from the `PreToolUse` hook (matcher `AskUserQuestion`): current Claude Code only
+  writes the `tool_use` line to the transcript once it's answered. Fallbacks: `pendingAsk` (transcript
+  tail), then the screen alone (`ask.partial`: only the visible question, answered on its own).
+  Sessions carry `ask {id, questions, current, partial, tabs}`; `POST /api/session/:id/ask
+  {answers: [{pick: [n…], other?}]}` runs `answerAsk`, which re-captures after every step: Left/Right
+  switch questions (only from a plain option row, so it first moves to option 1), Up/Down move, Enter
+  picks a single-select option (and advances), Space toggles a multi-select option, pasting into the
+  "Type something" row fills and selects it (`C-u` clears it), Enter on `Next`/`Submit` finishes a
+  multi-select, and Enter on "Submit answers" confirms the review step. One-question single-select
+  forms submit on Enter with no review step.
+- **Hooks:** Claude Code runs `agents-away hook` (stdin JSON) on Notification, Stop, UserPromptSubmit,
+  PostToolUse and PreToolUse (AskUserQuestion only). The CLI forwards it to the local API `/hook`. Install with `agents-away hooks install`.
 - **Reviews:** `agents-away review` long-polls `/review/:id/wait`. If it times out, the answer is later
   bracketed-pasted into the session as `[Phone review of "…" (id …)] …`.
 - **OpenCode:** polled every 5 s plus the SSE `/api/event` stream. Chat sync diffs item signatures
