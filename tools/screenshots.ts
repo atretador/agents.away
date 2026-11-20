@@ -70,9 +70,19 @@ await p.click("#new"); await p.waitForTimeout(900);
 await p.evaluate(() => { const d = document.querySelector("details.launch") as HTMLDetailsElement | null; if (d) d.open = true; });
 await p.evaluate(() => document.querySelector(".sheet")?.scrollTo(0, 9999));
 await shot(p, "new-session");
+
+// 7. Settings: notifications, themes, accent
+await p.goto(BASE + "/"); await p.waitForTimeout(800);
+await p.click("#settings"); await p.waitForTimeout(900);
+await p.evaluate(() => { // start the view at the "Appearance" heading
+  const sh = document.querySelector(".sheet") as HTMLElement;
+  const h = [...sh.querySelectorAll("h3")].find((x) => x.textContent === "Appearance") as HTMLElement;
+  if (h) sh.scrollTop = h.offsetTop - 64;
+});
+await shot(p, "settings");
 await p.context().close();
 
-// 7. Image review (light theme)
+// 8. Image review (light theme)
 p = await phone("light");
 await p.goto(BASE + "/#/review/r-hero"); await p.waitForTimeout(1500);
 await shot(p, "review");

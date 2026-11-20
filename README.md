@@ -11,18 +11,23 @@ push notifications, which travel end-to-end encrypted through your phone browser
 
 It's a web app (PWA) that you add to your home screen, not an app store download.
 
-<p align="center">
-  <img src="docs/screenshots/home.png" width="200" alt="Sessions list: what needs you, what's working, pending reviews">
-  <img src="docs/screenshots/permission.png" width="200" alt="A session asking for permission, answered with one tap">
-  <img src="docs/screenshots/chat.png" width="200" alt="Live chat with a queued message and a Send now button">
-  <img src="docs/screenshots/agents.png" width="200" alt="Context % and the session's subagents">
-</p>
-<p align="center">
-  <img src="docs/screenshots/subagent.png" width="200" alt="A subagent's chat, read-only">
-  <img src="docs/screenshots/changes.png" width="200" alt="Changes tab: the git diff of the session's repo">
-  <img src="docs/screenshots/new-session.png" width="200" alt="Start a session with model, effort and permission mode">
-  <img src="docs/screenshots/review.png" width="200" alt="Image review: approve, request changes or reject">
-</p>
+<table>
+  <tr>
+    <td width="33%"><img src="docs/screenshots/home.png" alt="Sessions list: what needs you, what's working, pending reviews"></td>
+    <td width="33%"><img src="docs/screenshots/permission.png" alt="A session asking for permission, answered with one tap"></td>
+    <td width="33%"><img src="docs/screenshots/chat.png" alt="Live chat with a queued message and a Send now button"></td>
+  </tr>
+  <tr>
+    <td width="33%"><img src="docs/screenshots/agents.png" alt="Context % and the session's subagents"></td>
+    <td width="33%"><img src="docs/screenshots/subagent.png" alt="A subagent's chat, read-only"></td>
+    <td width="33%"><img src="docs/screenshots/changes.png" alt="Changes tab: the git diff of the session's repo"></td>
+  </tr>
+  <tr>
+    <td width="33%"><img src="docs/screenshots/new-session.png" alt="Start a session with model, effort and permission mode"></td>
+    <td width="33%"><img src="docs/screenshots/review.png" alt="Image review: approve, request changes or reject"></td>
+    <td width="33%"><img src="docs/screenshots/settings.png" alt="Settings: notifications, themes and accent colours"></td>
+  </tr>
+</table>
 <p align="center"><sub>Screenshots use made-up demo data (<code>tools/demo/server.ts</code>).</sub></p>
 
 > [!WARNING]
