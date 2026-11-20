@@ -2,12 +2,14 @@
 // Agents Away CLI: Claude Code hook forwarding, image reviews, notifications, pairing.
 import { readFileSync, existsSync, statSync } from "node:fs";
 import { homedir, networkInterfaces } from "node:os";
-import { join, basename, resolve } from "node:path";
+import { join, basename, resolve, dirname } from "node:path";
 
 const CFG = join(process.env.AWAY_CONFIG_DIR ?? join(homedir(), ".config/agents-away"), "config.json");
-const PORT = Number(process.env.AWAY_LOCAL_PORT ?? 7442);
-const HTTPS = Number(process.env.AWAY_PORT ?? 7443);
-const ONBOARD = Number(process.env.AWAY_ONBOARD_PORT ?? 7440);
+// Ports: env vars win, then what the running server recorded (ports.json), then the defaults.
+const RUN = (() => { try { return JSON.parse(readFileSync(join(dirname(CFG), "ports.json"), "utf8")); } catch { return {}; } })();
+const PORT = Number(process.env.AWAY_LOCAL_PORT ?? RUN.local ?? 7442);
+const HTTPS = Number(process.env.AWAY_PORT ?? RUN.https ?? 7443);
+const ONBOARD = Number(process.env.AWAY_ONBOARD_PORT ?? RUN.onboard ?? 7440);
 const BASE = `http://127.0.0.1:${PORT}`;
 
 function token(): string {

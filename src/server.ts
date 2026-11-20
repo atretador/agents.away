@@ -3,7 +3,7 @@ import { existsSync, statSync, openSync, readSync, closeSync } from "node:fs";
 import { timingSafeEqual } from "node:crypto";
 import { hostname } from "node:os";
 import type { ServerWebSocket } from "bun";
-import { config, saveConfig, CERT_DIR, PORTS, TMUX_SOCKET, HOME, DATA_DIR } from "./config";
+import { config, saveConfig, CERT_DIR, PORTS, TMUX_SOCKET, HOME, DATA_DIR, writeJson, CFG_DIR } from "./config";
 import { mkdirSync } from "node:fs";
 const UPLOAD_DIR = join(DATA_DIR, "uploads");
 mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -962,4 +962,6 @@ Bun.serve({
 await refreshNow();
 // Warm resized images for recent reviews so the first look on the phone is quick.
 setTimeout(() => prewarm(R.listReviews().slice(0, 12).flatMap((r) => r.files.filter((f) => f.type.startsWith("image/")).map((f) => R.filePath(r, f.name)!))), 3000);
+// Tell the CLI (and so the Claude Code hooks) which ports this server is really on.
+writeJson(join(CFG_DIR, "ports.json"), PORTS);
 console.log(`Agents Away up: https://0.0.0.0:${PORTS.https}  local api 127.0.0.1:${PORTS.local}  onboarding http://0.0.0.0:${PORTS.onboard}`);
