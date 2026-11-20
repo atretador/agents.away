@@ -3,10 +3,10 @@
 All notable changes to Agents Away. Versions follow [Semantic Versioning](https://semver.org/); while the
 version is 0.x, minor releases may change behaviour or configuration.
 
-## Unreleased
+## 0.2.0 — 2026-11-20
 
 ### Android app
-- Optional Android app (APK from GitHub Releases) for using several PCs: one profile per PC, switch from
+- Optional Android app (APK from GitHub Releases, or built and served by your own PC) for using several PCs: one profile per PC, switch from
   the PC name in the header, launcher shortcuts per PC. Each profile shows that PC's own web app.
 - Pairing by scanning or pasting the link from `agents-away pair`, with no CA install: the link now
   carries the CA's fingerprint and the app trusts that CA for that PC only. Pairing a PC over another
@@ -14,10 +14,26 @@ version is 0.x, minor releases may change behaviour or configuration.
 - Notifications over the app's own connection to each PC, with no push service or other app: the PC
   sends its notification events down a WebSocket, and re-sends what's pending after a reconnect.
   **Allow** and **Approve** work from the notification.
+- `agents-away apk build|status|remove`: build the Android app on the PC (signed with a key kept in
+  `~/.config/agents-away/android`) and offer it on the setup page, with its SHA-256.
+
+### Setup and pairing
+- Setup page redone for phones: choose **Android app** (no certificate) or **Web app** (certificate), each
+  with its own steps marked Required or Recommended; Android/iPhone preselected from the browser.
+- `agents-away pair <interface|ip>` makes the QR codes for that address (e.g. `wg0` for a VPN) instead of
+  the LAN one, and refuses addresses the HTTPS certificate doesn't cover (saying how to add them).
 
 ### Web app and server
+- Languages: the phone app in English, Spanish or Brazilian Portuguese, following the phone's language
+  or chosen under ⚙ → Appearance (per phone). Notifications and the CLI stay in English.
+- `/btw` from the phone: the side answer opens in a modal (read from Claude Code's panel), and closing it
+  closes the panel on the PC too.
+- Waiting, explained: a pending `Yield` lists what it waits for (running subagents and background
+  commands, with how long each has run); `ScheduleWakeup` and `sleep N` show a live countdown.
 - **⚙ → This PC → Name** sets the name the Android app shows (default: the hostname).
 - The question card shows up when you open a session from a notification after the phone slept.
+- Optional update notifications (off by default): `agents-away updates on` checks GitHub once a day for
+  a newer release and sends one notification that opens its release page; ⚙ shows it too.
 
 ## 0.1.0 — first release
 
@@ -36,10 +52,6 @@ running on your Linux PC, served over your LAN or VPN.
   content, web fetches' URLs, for Claude Code and OpenCode; one-line summaries in the sessions list and
   notifications.
 - OpenCode: thinking models' reasoning as collapsed, expandable "Thinking" blocks.
-- `/btw` from the phone: the side answer opens in a modal (read from Claude Code's panel), and closing it
-  closes the panel on the PC too.
-- Waiting, explained: a pending `Yield` lists what it waits for (running subagents and background
-  commands, with how long each has run); `ScheduleWakeup` and `sleep N` show a live countdown.
 - **Stop** button (Esc / interrupt) while the agent works, and **Run in background** (Claude Code's
   Ctrl+B) when a long-running command or subagent can be moved to the background.
 - Terminal tab (live tmux pane, or OpenCode's own terminal), Changes tab (`git diff` of the session's repo).
@@ -60,14 +72,6 @@ running on your Linux PC, served over your LAN or VPN.
   without use (1 day – 1 year, default 30 days), paired-device list with sign-out; only hashes of
   sign-ins are stored. HTTPS with a private CA generated on the PC, limited (name constraints) to private
   addresses and the PC's own names; `agents-away pair` prints its fingerprint to compare on the phone.
-- `agents-away apk build|status|remove`: build the Android app on the PC (signed with a key kept in
-  `~/.config/agents-away/android`) and offer it on the setup page, with its SHA-256.
-- Setup page redone for phones: choose **Android app** (no certificate) or **Web app** (certificate), each
-  with its own steps marked Required or Recommended; Android/iPhone preselected from the browser.
-- Optional update notifications (off by default): `agents-away updates on` checks GitHub once a day for
-  a newer release and sends one notification that opens its release page; ⚙ shows it too.
-- `agents-away pair <interface|ip>` makes the QR codes for that address (e.g. `wg0` for a VPN) instead of
-  the LAN one, and refuses addresses the HTTPS certificate doesn't cover (saying how to add them).
   The local API for hooks and the CLI listens on 127.0.0.1 only.
 - Answers are tied to the prompt they were meant for: a stale notification's **Allow** can't approve a
   different prompt that has appeared since.
@@ -80,7 +84,5 @@ running on your Linux PC, served over your LAN or VPN.
 - `install.sh` (idempotent, `--uninstall`), `agents-away hooks install`, `agents-away skill install`,
   `claude` wrappers for fish and bash/zsh, systemd user service, `aa` alias.
 - Themes: Auto, Warm Light, Warm Dark, Light, Dark, Black; accent colours and text size.
-- Languages: the phone app in English, Spanish or Brazilian Portuguese, following the phone's language
-  or chosen under ⚙ → Appearance (per phone). Notifications and the CLI stay in English.
 - Test suite (`bun test`), CI on GitHub Actions, demo mode with made-up data (`bun run demo`) and
   automated README screenshots (`bun run screenshots`).
