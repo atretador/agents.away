@@ -41,7 +41,7 @@ its notifications straight from them, with no push service in between.
 > Anyone with a paired phone (or a fresh pairing link) can read your sessions, type into them and
 > approve the commands Claude wants to run, which amounts to running code on your PC. Access is
 > guarded by pairing: one-time links, plus per-device sign-ins that expire. There are no user
-> accounts, no passwords, no rate limiting and no audit log, and the code hasn't had a security review. **Never expose its ports to the internet**
+> accounts, no passwords, no rate limiting and no audit log. **Never expose its ports to the internet**
 > (no port forwarding, no public reverse proxy). To use it away from home, connect your phone to
 > your network with a VPN such as WireGuard or Tailscale. See [Security](#security).
 
