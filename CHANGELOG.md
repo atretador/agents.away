@@ -3,6 +3,16 @@
 All notable changes to Agents Away. Versions follow [Semantic Versioning](https://semver.org/); while the
 version is 0.x, minor releases may change behaviour or configuration.
 
+## 0.2.1 — 2026-11-27
+
+### Fixed
+- A PC whose page failed to start (server error, crashed page, script that never ran) left the Android
+  app on a blank screen with no header, no way back and no way to switch PCs. The app now shows a
+  "not responding" screen with **Retry** and **Switch PC** for server errors, a crashed page, or a page
+  that stays blank for 10 seconds.
+- The web app shows a message with **Reload** (and **Switch PC** in the Android app) when it can't
+  start, and reloads itself after a minute.
+
 ## 0.2.0 — 2026-11-20
 
 ### Android app

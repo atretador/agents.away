@@ -40,6 +40,8 @@
     <string name="unreachable_title">Não foi possível conectar a %1$s</string>
     <string name="unreachable_text">Tentado:\n%1$s\n\nO PC está ligado, e este celular está na rede ou VPN dele?</string>
     <string name="retry">Tentar de novo</string>
+    <string name="broken_title">%1$s não está respondendo direito</string>
+    <string name="broken_text">A página não carregou ou parou de funcionar (%1$s). Tente de novo ou troque para outro PC.</string>
     <string name="pair_not_a_link">Isso não é um link de pareamento do agents-away pair.</string>
     <string name="pair_no_fingerprint">Este link de pareamento não tem a impressão digital do certificado. Atualize o Agents Away no PC e rode agents-away pair de novo.</string>
     <string name="pair_no_ca">Não foi possível obter o certificado do PC.</string>

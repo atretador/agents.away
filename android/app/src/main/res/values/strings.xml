@@ -41,6 +41,8 @@
     <string name="unreachable_title">Can\'t reach %1$s</string>
     <string name="unreachable_text">Tried:\n%1$s\n\nIs the PC on, and is this phone on its network or VPN?</string>
     <string name="retry">Retry</string>
+    <string name="broken_title">%1$s isn\'t responding properly</string>
+    <string name="broken_text">The page didn\'t load or stopped working (%1$s). Retry, or switch to another PC.</string>
     <string name="pair_not_a_link">That isn\'t a pairing link from agents-away pair.</string>
     <string name="pair_no_fingerprint">This pairing link has no certificate fingerprint. Update Agents Away on the PC and run agents-away pair again.</string>
     <string name="pair_no_ca">Couldn\'t get the PC\'s certificate.</string>

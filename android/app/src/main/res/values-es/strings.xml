@@ -40,6 +40,8 @@
     <string name="unreachable_title">No se puede conectar con %1$s</string>
     <string name="unreachable_text">Probado:\n%1$s\n\n¿Está encendido el PC, y este teléfono en su red o VPN?</string>
     <string name="retry">Reintentar</string>
+    <string name="broken_title">%1$s no responde bien</string>
+    <string name="broken_text">La página no cargó o dejó de funcionar (%1$s). Reintenta o cambia a otro PC.</string>
     <string name="pair_not_a_link">Eso no es un enlace de vinculación de agents-away pair.</string>
     <string name="pair_no_fingerprint">Este enlace de vinculación no tiene la huella del certificado. Actualiza Agents Away en el PC y vuelve a ejecutar agents-away pair.</string>
     <string name="pair_no_ca">No se pudo obtener el certificado del PC.</string>

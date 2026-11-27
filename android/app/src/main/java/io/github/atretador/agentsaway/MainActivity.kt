@@ -11,6 +11,8 @@ import android.net.Uri
 import android.net.http.SslError
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
 import android.view.Gravity
@@ -22,7 +24,9 @@ import android.webkit.JavascriptInterface
 import android.webkit.SslErrorHandler
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceError
+import android.webkit.WebResourceResponse
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -232,7 +236,17 @@ class MainActivity : ComponentActivity() {
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                 if (request.isForMainFrame) profileOf(view)?.let { if (it.id == current?.id) showUnreachable(it) }
             }
+            // A server error page (5xx) for the app itself: say so, with a way out, instead of a blank page.
+            override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
+                if (request.isForMainFrame && response.statusCode >= 500) profileOf(view)?.let { showBroken(it, "HTTP ${response.statusCode}") }
+            }
+            // The page's process died or was killed: the view is unusable, drop it and offer a fresh start.
+            override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                profileOf(view)?.let { showBroken(it, if (detail.didCrash()) "crashed" else "killed") }
+                return true
+            }
             override fun onPageFinished(view: WebView, url: String) {
+                watchPage(view)
                 // The PC no longer knows this phone (signed out from ⚙ → Paired devices, or expired).
                 view.evaluateJavascript("!!document.querySelector('[data-i18n=\"unpaired\"]')") { r ->
                     val p = profileOf(view) ?: return@evaluateJavascript
@@ -248,6 +262,33 @@ class MainActivity : ComponentActivity() {
                 return try { pickFiles.launch(params.createIntent()); true } catch (e: Exception) { fileCallback = null; false }
             }
         }
+    }
+
+    private val ui = Handler(Looper.getMainLooper())
+
+    /**
+     * A page that loaded but never drew anything (its script failed, or a file of it came back as an error)
+     * is a blank screen with no header and no way out. Ten seconds after the load, if the app's own container
+     * is still empty, show the native "not responding" screen. Pages without that container (the sign-in
+     * page, an error page) are left alone.
+     */
+    private fun watchPage(view: WebView) {
+        ui.postDelayed({
+            val p = profileOf(view) ?: return@postDelayed
+            if (p.id != current?.id || view.parent == null) return@postDelayed
+            view.evaluateJavascript("(function(){var a=document.getElementById('app');return a?String(a.childElementCount):'none'})()") { r ->
+                if (r == "\"0\"") showBroken(p, "blank page")
+            }
+        }, 10_000)
+    }
+
+    /** Throw the PC's page away (so Retry loads a fresh one) and show the native screen with Retry / Switch PC. */
+    private fun showBroken(p: Profile, why: String) {
+        webViews.remove(p.id)?.let { v -> (v.parent as? ViewGroup)?.removeView(v); ui.post { v.destroy() } } // not inside the client's own callback
+        if (p.id != current?.id) return
+        show(screen(getString(R.string.broken_title, p.name), getString(R.string.broken_text, why), false,
+            getString(R.string.retry) to { openProfile(p) },
+            getString(R.string.switch_title) to { showSwitcher() }))
     }
 
     /** What the web app can call. Every call is checked against the WebView's current page: only this

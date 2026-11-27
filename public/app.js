@@ -2395,7 +2395,10 @@ if ("serviceWorker" in navigator) {
   if (!NATIVE) navigator.serviceWorker.register("/sw.js").catch((e) => { swError = e.message; if (S.view?.kind === "home") renderHome(); });
   navigator.serviceWorker.addEventListener("message", (e) => { if (e.data?.navigate) nav(e.data.navigate.replace(/^\/?/, "")); });
 }
-await loadState();
-route();
-connect();
+try {
+  await loadState();
+  route();
+  connect();
+  window.__awayBooted = true; // lets boot-guard.js stand down
+} catch (e) { window.__awayBootFail?.(e.message); throw e; }
 setInterval(() => { if (S.view?.kind === "home" && document.visibilityState === "visible") renderHome(); }, 30000);
