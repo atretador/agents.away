@@ -127,6 +127,10 @@ a { color: var(--accent); }
 .section-h { display: flex; align-items: baseline; justify-content: space-between; margin: 22px 4px 10px; }
 .section-h h2 { margin: 0; font-size: 13px; font-weight: 650; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-3); }
 .section-h .count { font-size: 12px; color: var(--ink-3); }
+.section-h h2 + .count { margin: 0 auto 0 8px; }
+.kfilter { display: flex; gap: 2px; background: var(--bg-2); border-radius: 10px; padding: 2px; }
+.kfilter button { border: 0; background: transparent; padding: 4px 9px; border-radius: 8px; font-weight: 600; font-size: 12px; color: var(--ink-3); }
+.kfilter button.on { background: var(--card); color: var(--ink); box-shadow: 0 1px 3px rgb(0 0 0 / .12); }
 .stack { display: flex; flex-direction: column; gap: 10px; }
 
 .card {
@@ -336,8 +340,8 @@ button.card { width: 100%; text-align: left; }
 .answer .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .verdict { margin-top: 16px; padding: 14px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); }
 .verdict .c { margin-top: 6px; white-space: pre-wrap; }
-.lightbox { position: fixed; inset: 0; z-index: 100; background: rgb(0 0 0 / .94); overflow: auto; display: flex; align-items: center; justify-content: center; touch-action: pinch-zoom pan-x pan-y; }
-.lightbox img { max-width: none; width: 100%; height: auto; }
+.lightbox { position: fixed; inset: 0; z-index: 100; background: rgb(0 0 0 / .94); overflow: hidden; display: flex; align-items: center; justify-content: center; touch-action: none; user-select: none; -webkit-user-select: none; }
+.lightbox img { width: 100%; height: 100%; object-fit: contain; max-width: none; transform-origin: 50% 50%; will-change: transform; -webkit-user-drag: none; }
 .lightbox .icon-btn { position: fixed; top: calc(var(--safe-t) + 10px); right: 10px; color: #fff; background: rgb(255 255 255 / .12); }
 
 /* ── sheets ── */
@@ -541,8 +545,12 @@ mark { background: color-mix(in oklab, var(--accent) 30%, transparent); color: v
 .chips button.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 
 /* ── OpenCode ── */
-.chip.oc { background: color-mix(in oklab, var(--work) 14%, var(--card)); color: var(--work); }
-.oc-tag { font-weight: 650; color: var(--work); }
+/* which coding agent a session belongs to: a neutral chip with a fixed colour dot (the status chips own blue/green/amber) */
+.chip.agent { background: var(--bg-2); color: var(--ink-2); display: inline-flex; align-items: center; gap: 5px; }
+.chip.agent::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--k, var(--ink-3)); }
+.k-claude { --k: #d9784a; }
+.k-opencode { --k: #5b8def; }
+.k-pi { --k: #9b6cf0; }
 .msg-note { align-self: center; font-size: 12.5px; color: var(--ink-3); background: var(--bg-2); padding: 5px 12px; border-radius: 10px; text-align: center; max-width: 92%; }
 .oc-model { font-size: 14px; margin-bottom: 4px; }
 .linkbtn { border: 0; background: none; color: var(--accent); font-size: 13px; padding: 0 4px; }

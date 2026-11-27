@@ -392,4 +392,7 @@ export default {
   "Loading pi models…": "Carregando modelos do pi…",
   "use pi's default": "usar o padrão do pi",
   "pi's default": "padrão do pi",
+  "All": "Todas",
+  "No {agent} sessions": "Nenhuma sessão de {agent}",
+  "Filter by agent": "Filtrar por agente",
 };

@@ -180,6 +180,7 @@ async function refresh() {
     const prompt = screen ? detectPrompt(screen) : null;
     const prev = sessions.get(id);
     sessions.set(id, {
+      ...(/^pi-/.test(pane.session) ? { kind: "pi" as const } : {}), // the wrapper and the phone name pi's tmux sessions pi-<folder>
       id, pid: pane.panePid, name: pane.session, title: prompt ? "Starting — needs you" : "Starting…", cwd: pane.cwd, status: prompt ? "waiting" : "working",
       tmux: { socket: pane.socket, pane: pane.paneId, session: pane.session, attached: pane.attached, cols: pane.width },
       attention: null, prompt, lastInputAt: ttyLastInput(pane.tty), activityAt: Date.now(), startedAt: prev?.startedAt ?? Date.now(), doneAt: 0,

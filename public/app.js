@@ -98,6 +98,10 @@ const vibrate = (n = 10) => navigator.vibrate?.(n);
 const NATIVE = window.AwayNative ?? null;
 /** The coding agent behind a session, as shown to the user ("pi" is a product name, not translated). */
 const agentName = (kind) => (kind === "opencode" ? "OpenCode" : kind === "pi" ? "pi" : "Claude");
+const KINDS = ["claude", "opencode", "pi"];
+const kindOf = (s) => (KINDS.includes(s?.kind) ? s.kind : "claude");
+/** Which coding agent a session belongs to: shown on every card and in the session header. */
+const agentBadge = (kind, extra = "") => `<span class="chip agent k-${kind}">${agentName(kind)}${extra ? " · " + esc(extra) : ""}</span>`;
 I.swap = '<path d="M7 7h11l-3-3M17 17H6l3 3"/>';
 /** Ask the server for a resized WebP (360 thumbs, 800 chat/notification, 1600 full view). */
 const sized = (url, w) => url + (url.includes("?") ? "&" : "?") + "w=" + w;
@@ -345,8 +349,8 @@ function sessionCard(s) {
     <div class="t">${s.pinned ? `<span class="pin-ic">${icon("pin")}</span>` : ""}${esc(sname(s))}${s.muted ? `<span class="mute-ic">${icon("mute")}</span>` : ""}</div>
     <div class="when">${s.status === "working" ? `<span class="chip work">${tr("Working")}</span>` : esc(when)}</div>
     <div class="meta">
+      ${agentBadge(kindOf(s))}
       ${s.status !== "working" ? `<span class="chip ${s.status === "waiting" ? "wait" : "ok"}">${STATUS_LABEL[s.status]}</span>` : ""}
-      ${s.kind === "opencode" ? `<span class="chip oc">OpenCode</span>` : s.kind === "pi" ? `<span class="chip oc">pi</span>` : ""}
       ${s.canReply ? "" : `<span class="chip" title="${tr("Not in tmux")}">${icon("eye").replace("<svg", '<svg width="12" height="12"')} ${tr("watch")}</span>`}
       <span class="path">${esc(s.home)}</span>
     </div>
@@ -426,8 +430,11 @@ function reviewCard(r) {
 }
 
 async function renderHome() {
-  const waiting = S.sessions.filter((s) => s.status === "waiting");
-  const others = S.sessions.filter((s) => s.status !== "waiting");
+  const present = KINDS.filter((k) => S.sessions.some((s) => kindOf(s) === k));
+  const filter = prefs.homeFilter && (present.includes(prefs.homeFilter) || S.sessions.length === 0 || prefs.homeFilter === "all") ? prefs.homeFilter : "all";
+  const shown = S.sessions.filter((s) => filter === "all" || kindOf(s) === filter);
+  const waiting = shown.filter((s) => s.status === "waiting");
+  const others = shown.filter((s) => s.status !== "waiting");
   const pending = S.reviews.filter((r) => r.status === "pending");
   const answered = S.reviews.filter((r) => r.status !== "pending").slice(0, 8);
   const ps = await pushStatus();
@@ -445,8 +452,8 @@ async function renderHome() {
       ${ps === "nosw" ? `<div class="banner">${icon("alert")}<div class="grow"><b>${tr("Certificate not trusted")}</b>${tr("Notifications need the Agents Away certificate installed on this phone. Open {url} for the steps.", { url: `<code>http://${esc(location.hostname)}:7440</code>` })}</div></div>` : ""}
       ${ps === "unsupported" ? `<div class="banner">${icon("alert")}<div class="grow"><b>${tr("Install for notifications")}</b>${tr("Add Agents Away to your home screen (browser menu → Add to Home screen), then open it from there.")}</div></div>` : ""}
       ${waiting.length || pending.length ? `<div class="section-h"><h2>${tr("Needs you")}</h2></div><div class="stack">${waiting.map(sessionCard).join("")}${pending.map(reviewCard).join("")}</div>` : ""}
-      <div class="section-h"><h2>${tr("Sessions")}</h2><span class="count">${S.sessions.length || ""}</span></div>
-      <div class="stack">${others.map(sessionCard).join("") || (waiting.length ? "" : `<div class="empty"><b>${tr("No sessions running")}</b>${tr("Start one with the button below, or run <code>claude</code> on the PC.")}</div>`)}</div>
+      <div class="section-h"><h2>${tr("Sessions")}</h2><span class="count">${shown.length || ""}</span>${present.length > 1 ? `<div class="kfilter" role="group" aria-label="${tr("Filter by agent")}">${["all", ...present].map((k) => `<button data-kf="${k}" class="${k === filter ? "on" : ""}">${k === "all" ? tr("All") : agentName(k)}</button>`).join("")}</div>` : ""}</div>
+      <div class="stack">${others.map(sessionCard).join("") || (waiting.length ? "" : filter !== "all" ? `<div class="empty"><b>${tr("No {agent} sessions", { agent: agentName(filter) })}</b></div>` : `<div class="empty"><b>${tr("No sessions running")}</b>${tr("Start one with the button below, or run <code>claude</code> on the PC.")}</div>`)}</div>
       ${answered.length ? `<div class="section-h"><h2>${tr("Reviewed")}</h2><button class="icon-btn sec-act" id="clear-reviewed" aria-label="${tr("Clear review history")}" title="${tr("Clear review history")}">${icon("broom")}</button></div><div class="stack">${answered.map(reviewCard).join("")}</div>` : ""}
     </main>
     <button class="fab" id="new">${icon("plus")} ${tr("New session")}</button>`;
@@ -455,6 +462,7 @@ async function renderHome() {
   $("#settings").onclick = openSettings;
   $("#profiles")?.addEventListener("click", () => NATIVE?.openProfiles());
   $("#new").onclick = openNew;
+  app.querySelectorAll("[data-kf]").forEach((b) => (b.onclick = () => { prefs.homeFilter = b.dataset.kf; savePrefs(); renderHome(); }));
   $("#clear-reviewed")?.addEventListener("click", async () => {
     const n = S.reviews.filter((r) => r.status !== "pending").length;
     if (!(await ask(tr("Clear review history?"), trn(n, "Deletes {n} reviewed item and its images. Reviews still waiting for you are kept.", "Deletes {n} reviewed items and their images. Reviews still waiting for you are kept."), tr("Clear"), true))) return;
@@ -657,7 +665,7 @@ function updateSessionChrome() {
     return;
   }
   t.textContent = sname(s);
-  sub.innerHTML = `<span class="dot ${s.status}" style="width:7px;height:7px"></span>${STATUS_LABEL[s.status]} · ${s.kind === "opencode" ? `<b class="oc-tag">OpenCode${s.agentName ? " · " + esc(s.agentName) : ""}</b> · ` : s.kind === "pi" ? `<b class="oc-tag">pi</b> · ` : ""}${esc(s.home)}`;
+  sub.innerHTML = `<span class="dot ${s.status}" style="width:7px;height:7px"></span>${STATUS_LABEL[s.status]} · ${agentBadge(kindOf(s), s.kind === "opencode" ? s.agentName : "")} · ${esc(s.home)}`;
   renderDock(s);
   renderTyping(s);
   renderHeadExtras(s);
@@ -1433,8 +1441,8 @@ async function loadEndedInfo(id) {
     S.ended = info;
     if (S.view?.id !== id || cur()) return;
     $("#s-title").textContent = info.prefs?.name || info.title || tr("Past session");
-    $("#s-sub").innerHTML = `${tr("Ended")} · ${esc((info.cwd || "").replace(/^\/home\/[^/]+/, "~"))}`;
-    renderHeadExtras({ kind: "claude", context: info.context, agents: info.agents });
+    $("#s-sub").innerHTML = `${agentBadge(kindOf(info))} · ${tr("Ended")} · ${esc((info.cwd || "").replace(/^\/home\/[^/]+/, "~"))}`;
+    renderHeadExtras({ kind: kindOf(info), context: info.context, agents: info.agents });
   } catch {}
 }
 
@@ -1751,7 +1759,9 @@ function lightbox(src, list = [src]) {
     ${many ? `<div class="lb-count"></div><button class="lb-nav prev" aria-label="${tr("Previous image")}">${icon("back")}</button><button class="lb-nav next" aria-label="${tr("Next image")}">${icon("back")}</button>` : ""}
     <button class="btn lb-orig" hidden>${tr("Original quality")}</button>`;
   const img = lb.querySelector("img"), orig = lb.querySelector(".lb-orig"), count = lb.querySelector(".lb-count");
+  let resetZoom = () => {};
   const show = (dir = 0) => {
+    resetZoom();
     const u = list[i];
     img.src = resizable(u) ? sized(u, 1600) : u;
     orig.hidden = !resizable(u); orig.disabled = false; orig.textContent = tr("Original quality");
@@ -1774,17 +1784,73 @@ function lightbox(src, list = [src]) {
     pre.onerror = () => { orig.textContent = tr("Couldn't load original"); };
     pre.src = u;
   };
-  // Swipe: one finger, mostly sideways, and only when not pinch-zoomed in.
-  let t0 = null;
-  lb.addEventListener("touchstart", (e) => { t0 = e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY, at: Date.now() } : null; }, { passive: true });
-  lb.addEventListener("touchmove", (e) => { if (e.touches.length > 1) t0 = null; }, { passive: true });
-  lb.addEventListener("touchend", (e) => {
-    if (!t0 || !many) return;
-    const zoomed = (visualViewport?.scale ?? 1) > 1.05 || lb.scrollWidth > lb.clientWidth + 2;
-    const dx = e.changedTouches[0].clientX - t0.x, dy = e.changedTouches[0].clientY - t0.y;
-    t0 = null;
-    if (!zoomed && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) go(dx < 0 ? 1 : -1);
-  }, { passive: true });
+  // Zoom and pan are done here, not by the browser: the app's WebView doesn't pinch-zoom a fixed overlay, and
+  // this behaves the same everywhere. Pinch (or wheel / double-tap) zooms around the fingers, one finger pans a
+  // zoomed image, and at 1× a sideways swipe moves through the gallery.
+  const MAX = 6;
+  let sc = 1, tx = 0, ty = 0;
+  const shown = () => { // the picture's size on screen at 1× (the <img> element is the whole viewport, object-fit: contain)
+    const W = lb.clientWidth, H = lb.clientHeight, r = img.naturalWidth / img.naturalHeight || W / H;
+    return W / H > r ? { w: H * r, h: H } : { w: W, h: W / r };
+  };
+  const clampPan = () => {
+    const d = shown(), mx = Math.max(0, (d.w * sc - lb.clientWidth) / 2), my = Math.max(0, (d.h * sc - lb.clientHeight) / 2);
+    tx = Math.min(mx, Math.max(-mx, tx)); ty = Math.min(my, Math.max(-my, ty));
+  };
+  const apply = (anim = false) => {
+    clampPan();
+    img.style.transition = anim ? "transform .18s ease-out" : "none";
+    img.style.transform = sc === 1 && !tx && !ty ? "" : `translate(${tx}px, ${ty}px) scale(${sc})`;
+  };
+  const zoomAt = (x, y, to, anim = false) => { // keep the point under (x, y) where it is while the scale changes
+    const n = Math.min(MAX, Math.max(1, to)), fx = x - lb.clientWidth / 2, fy = y - lb.clientHeight / 2;
+    tx = fx - (fx - tx) * (n / sc); ty = fy - (fy - ty) * (n / sc); sc = n;
+    apply(anim);
+  };
+  resetZoom = () => { sc = 1; tx = ty = 0; img.style.transition = "none"; img.style.transform = ""; };
+  const ptrs = new Map();
+  let pinch = null, tap = null, lastTap = null, swipe = null;
+  const mid = () => { const [a, b] = [...ptrs.values()]; return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, d: Math.hypot(a.x - b.x, a.y - b.y) || 1 }; };
+  lb.addEventListener("pointerdown", (e) => {
+    if (e.target.closest("button")) return;
+    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    try { lb.setPointerCapture(e.pointerId); } catch {}
+    if (ptrs.size === 2) { const m = mid(); pinch = { d: m.d, sc, tx, ty, x: m.x, y: m.y }; tap = swipe = null; }
+    else if (ptrs.size === 1) { tap = { x: e.clientX, y: e.clientY, at: Date.now(), moved: false }; swipe = { x: e.clientX, y: e.clientY }; }
+  });
+  lb.addEventListener("pointermove", (e) => {
+    const p = ptrs.get(e.pointerId);
+    if (!p) return;
+    const dx = e.clientX - p.x, dy = e.clientY - p.y;
+    p.x = e.clientX; p.y = e.clientY;
+    if (tap && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 8) tap.moved = true;
+    if (ptrs.size === 2 && pinch) {
+      const m = mid(), n = Math.min(MAX * 1.2, Math.max(0.6, pinch.sc * (m.d / pinch.d))), cx = lb.clientWidth / 2, cy = lb.clientHeight / 2;
+      sc = n; tx = m.x - cx - (pinch.x - cx - pinch.tx) * (n / pinch.sc); ty = m.y - cy - (pinch.y - cy - pinch.ty) * (n / pinch.sc);
+      apply();
+    } else if (ptrs.size === 1 && sc > 1) { tx += dx; ty += dy; apply(); }
+  });
+  const up = (e) => {
+    if (!ptrs.delete(e.pointerId)) return;
+    if (ptrs.size === 1) { pinch = null; swipe = tap = null; if (sc < 1) { sc = 1; apply(true); } return; } // one finger left: carry on panning
+    if (ptrs.size) return;
+    pinch = null;
+    if (sc < 1.02) { sc = 1; tx = ty = 0; apply(true); }
+    else if (sc > MAX) { sc = MAX; apply(true); }
+    if (tap && !tap.moved && Date.now() - tap.at < 300) { // a tap: twice in a row toggles 1× / 2.5×
+      if (lastTap && Date.now() - lastTap.at < 320 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) {
+        lastTap = null;
+        if (sc > 1.05) { sc = 1; tx = ty = 0; apply(true); } else zoomAt(e.clientX, e.clientY, 2.5, true);
+      } else lastTap = { x: e.clientX, y: e.clientY, at: Date.now() };
+    } else if (swipe && many && sc <= 1.02) {
+      const dx = e.clientX - swipe.x, dy = e.clientY - swipe.y;
+      if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) go(dx < 0 ? 1 : -1);
+    }
+    tap = swipe = null;
+  };
+  lb.addEventListener("pointerup", up);
+  lb.addEventListener("pointercancel", up);
+  lb.addEventListener("wheel", (e) => { e.preventDefault(); zoomAt(e.clientX, e.clientY, sc * (e.deltaY < 0 ? 1.2 : 1 / 1.2)); }, { passive: false });
   lb.onclick = (e) => { if (e.target === lb) close(); };
   show();
   document.body.appendChild(lb);

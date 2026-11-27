@@ -5,6 +5,13 @@ version is 0.x, minor releases may change behaviour or configuration.
 
 ## Unreleased
 
+### Web app
+- Every session card and session header now names its agent (Claude, OpenCode or pi) with a badge; before, only
+  OpenCode and pi sessions had one. When sessions of more than one agent are running, a filter next to the
+  session count (All · Claude · OpenCode · pi) narrows the list; it's remembered per phone.
+- Images (in chats and in reviews) can be zoomed: pinch, double-tap or mouse wheel, and drag to pan. This now
+  works inside the Android app too, where the browser's own pinch-zoom doesn't reach the viewer.
+
 ### pi
 - [pi](https://pi.dev) sessions appear next to Claude Code and OpenCode ones: follow the chat (messages, tool
   calls, results, thinking), reply, interrupt, see the context %, get a "finished" notification, start new
