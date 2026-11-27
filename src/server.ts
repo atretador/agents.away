@@ -15,6 +15,7 @@ import {
 } from "./claude";
 import { detectAskForm, answerAsk, sameQuestion, type AskAnswer } from "./tmux";
 import { askQuestions, pendingAsk, isSessionId, type AskQuestion } from "./claude";
+import { listPiProcs, piTitle, recentPiSessions, PI_SESSIONS_DIR } from "./pi";
 import { onToolHook, toolForScreen, toolLine } from "./approval";
 import { setPushTap, type PushPayload } from "./push";
 import { addSubscription, removeSubscription, pushAll, subscriptionCount, type PushPayload } from "./push";
@@ -70,7 +71,7 @@ type Session = {
   activityAt: number;
   startedAt: number;
   doneAt: number;
-  kind?: "claude" | "opencode";
+  kind?: "claude" | "opencode" | "pi";
   agentName?: string;
   modelName?: string;
   /** Reasoning effort: Claude Code's from the transcript, OpenCode's model variant. */
@@ -133,16 +134,18 @@ function hs(id: string) {
 
 let lastSnapshot = "";
 async function refresh() {
-  const [panes, procs] = await Promise.all([listPanes(), listClaudeProcs()]);
+  const [panes, claudeProcs] = await Promise.all([listPanes(), listClaudeProcs()]);
+  const procs = [...claudeProcs, ...listPiProcs()];
   const seen = new Set<string>();
   for (const p of procs) {
     if (!p.sessionId) continue;
     seen.add(p.sessionId);
+    const pi = "kind" in p && p.kind === "pi" ? p : null; // a pi session: no menus to detect, no subagents
     const pane = matchPane(p, panes);
     const tpath = transcriptPath(p.sessionId, p.cwd);
     const h = hs(p.sessionId);
     let prompt: Prompt | null = null, ask: Ask | null = null, bg = false, btw: Btw | null = null;
-    if (pane) {
+    if (pane && !pi) {
       const screen = await capture(pane.socket, pane.paneId);
       bg = !!screen && canBackground(screen);
       btw = screen ? detectBtw(screen, pane.width) : null;
@@ -157,13 +160,14 @@ async function refresh() {
     else if (p.status === "busy" && !(h.doneAt > h.promptAt && h.doneAt > p.statusUpdatedAt)) status = "working";
     else status = "idle";
     sessions.set(p.sessionId, {
-      id: p.sessionId, pid: p.pid, name: p.name, title: sessionTitle(tpath), cwd: p.cwd, status,
+      ...(pi ? { kind: "pi", modelName: pi.model } : {}),
+      id: p.sessionId, pid: p.pid, name: p.name, title: pi ? piTitle(tpath, p.name === basename(p.cwd) ? null : p.name) : sessionTitle(tpath), cwd: p.cwd, status,
       tmux: pane ? { socket: pane.socket, pane: pane.paneId, session: pane.session, attached: pane.attached, cols: pane.width } : null,
       attention: h.attention, prompt, lastInputAt: ttyLastInput(p.tty),
       activityAt: tpath ? statSync(tpath).mtimeMs : 0, startedAt: p.startedAt, doneAt: h.doneAt,
-      context: contextUsage(tpath), agents: agentCountsFor(p.sessionId, tpath, true), ask,
+      context: pi ? pi.context : contextUsage(tpath), agents: pi ? undefined : agentCountsFor(p.sessionId, tpath, true), ask,
       canBackground: bg && !prompt && !ask, btw,
-      waits: (() => { const w = waitingOn(tpath, true); return w.length ? w : undefined; })(),
+      waits: pi ? undefined : (() => { const w = waitingOn(tpath, true); return w.length ? w : undefined; })(),
     });
   }
   // Agents Away-socket panes Claude hasn't registered yet (e.g. sitting at the folder-trust prompt).
@@ -678,8 +682,10 @@ async function api(req: Request, url: URL, deviceKey: string): Promise<Response>
   if (p === "/api/recent") {
     const live = new Set(sessions.keys());
     return json({
-      recent: recentSessions(30).filter((r) => !live.has(r.sessionId)).map((r) => ({ ...r, home: r.cwd.replace(HOME, "~") })),
+      recent: [...recentSessions(30), ...recentPiSessions(15)].sort((a, b) => b.mtime - a.mtime).slice(0, 30)
+        .filter((r) => !live.has(r.sessionId)).map((r) => ({ ...r, kind: r.kind ?? "claude", home: r.cwd.replace(HOME, "~") })),
       dirs: knownProjectDirs().map((d) => ({ path: d, home: d.replace(HOME, "~") })),
+      pi: !!Bun.which("pi"), // offer pi in the new-session sheet only where it's installed
     });
   }
   let mm;
@@ -905,7 +911,7 @@ async function api(req: Request, url: URL, deviceKey: string): Promise<Response>
     }
     setPref(id, { hiddenAgents: [...hidden].slice(-500) });
     const s = sessions.get(id);
-    if (s && s.kind !== "opencode") { s.agents = agentCountsFor(id, transcriptPath(id, s.cwd), true); broadcast({ type: "sessions", sessions: publicSessions() }); }
+    if (s && (s.kind ?? "claude") === "claude") { s.agents = agentCountsFor(id, transcriptPath(id, s.cwd), true); broadcast({ type: "sessions", sessions: publicSessions() }); }
     return json({ ok: true, ids });
   }
   if ((mm = m(/^\/api\/session\/([\w-]+)\/agent\/([\w-]+)$/)) && isOc(mm[1])) {
@@ -925,7 +931,7 @@ async function api(req: Request, url: URL, deviceKey: string): Promise<Response>
   if ((mm = m(/^\/api\/session\/([\w-]+)\/info$/))) {
     const live = sessions.get(mm[1]);
     const path = transcriptPath(mm[1], live?.cwd);
-    return json({ id: mm[1], live: !!live, cwd: live?.cwd ?? cwdOfTranscript(mm[1]), title: sessionTitle(path), prefs: getPref(mm[1]), context: contextUsage(path), agents: agentCountsFor(mm[1], path, !!live) });
+    return json({ id: mm[1], live: !!live, kind: live?.kind ?? (path?.startsWith(PI_SESSIONS_DIR) ? "pi" : "claude"), cwd: live?.cwd ?? cwdOfTranscript(mm[1]), title: live?.kind === "pi" || path?.startsWith(PI_SESSIONS_DIR) ? piTitle(path) : sessionTitle(path), prefs: getPref(mm[1]), context: contextUsage(path), agents: agentCountsFor(mm[1], path, !!live) });
   }
   if (p === "/api/upload" && req.method === "POST") {
     const fd = await req.formData();
@@ -952,6 +958,16 @@ async function api(req: Request, url: URL, deviceKey: string): Promise<Response>
         await refreshOpenCode(); await refreshNow();
         return json({ ok: true, id });
       } catch (e: any) { return err(e.message, 502); }
+    }
+    if (b.agent === "pi") {
+      const args: string[] = [];
+      if (b.piModel && /^[\w./:-]{1,120}$/.test(String(b.piModel))) args.push("--model", String(b.piModel));
+      if (b.resume) { if (!isSessionId(b.resume)) return err("bad session id"); args.push("--session", b.resume); }
+      // pi takes the first message as a plain argument (no "--"): a leading "-" would be an option and "@" a file.
+      if (b.prompt) args.push(String(b.prompt).replace(/^(?=[-@])/, " "));
+      const name = await uniqueName("pi-" + basename(cwd));
+      await newSession(cwd, name, args, "pi");
+      return json({ ok: true, tmux: name });
     }
     const args: string[] = [];
     const MODELS = ["opus", "sonnet", "haiku", "fable"], EFFORTS = ["low", "medium", "high", "xhigh", "max"];

@@ -2,6 +2,7 @@ import { join, basename } from "node:path";
 import { readdirSync, readlinkSync, statSync, openSync, readSync, closeSync, existsSync } from "node:fs";
 import { CLAUDE_DIR } from "./config";
 import type { Pane } from "./tmux";
+import { parsePiOne, piTranscript } from "./pi";
 
 export type ClaudeProc = {
   pid: number;
@@ -63,6 +64,8 @@ export function transcriptPath(sessionId: string, cwd?: string): string | null {
     const p = join(PROJ_DIR, cwd.replace(/[^a-zA-Z0-9]/g, "-"), sessionId + ".jsonl");
     if (existsSync(p)) { transcriptCache.set(sessionId, p); return p; }
   }
+  const pi = piTranscript(sessionId);
+  if (pi) return pi;
   try {
     for (const d of readdirSync(PROJ_DIR)) {
       const p = join(PROJ_DIR, d, sessionId + ".jsonl");
@@ -148,6 +151,14 @@ export function parseLines(text: string, base?: number, sidechain = false): Pars
     if (!line || line[0] !== "{") continue;
     // Cheap prefilter: skip the (huge) api-request blobs and bookkeeping lines without parsing them.
     const head = line.slice(0, 40);
+    if (head.startsWith('{"type":"message"')) { // a pi transcript (see pi.ts)
+      let o: any;
+      try { o = JSON.parse(line); } catch { continue; }
+      const n0 = items.length;
+      parsePiOne(o, items);
+      if (base !== undefined) for (let i = n0; i < items.length; i++) (items[i] as any).o = lineOff;
+      continue;
+    }
     if (!head.startsWith('{"parentUuid"') && !head.startsWith('{"type":"queue-operation"') && !head.startsWith('{"type":"ai-title"')) continue;
     let o: any;
     try { o = JSON.parse(line); } catch { continue; }
@@ -262,7 +273,7 @@ export function lastAssistantText(path: string | null): string | null {
   return null;
 }
 
-export type Recent = { sessionId: string; cwd: string; title: string | null; mtime: number; path: string };
+export type Recent = { sessionId: string; cwd: string; title: string | null; mtime: number; path: string; kind?: "pi" };
 
 let recentCache: { at: number; list: Recent[] } | null = null;
 export function recentSessions(limit = 25): Recent[] {

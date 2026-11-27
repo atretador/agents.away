@@ -28,6 +28,7 @@ if [[ "${1:-}" == "--uninstall" ]]; then
   [[ -x "$ROOT/bin/agents-away" ]] && have bun && "$ROOT/bin/agents-away" hooks uninstall || true
   say "Removing the claude wrapper, CLI link and skill"
   rm -f "$HOME/.config/fish/functions/claude.fish" "$CFG/claude.sh"
+  [[ -f "$HOME/.config/fish/functions/pi.fish" ]] && grep -q "Agents Away" "$HOME/.config/fish/functions/pi.fish" && rm -f "$HOME/.config/fish/functions/pi.fish"
   rc=$(shell_rc); [[ -n "$rc" && -f "$rc" ]] && sed -i '\|# Agents Away: run claude inside tmux$|d' "$rc"
   [[ -L "$BIN/agents-away" ]] && rm -f "$BIN/agents-away"
   [[ -L "$BIN/aa" && "$(readlink "$BIN/aa")" == "$ROOT/bin/agents-away" ]] && rm -f "$BIN/aa"
@@ -82,7 +83,13 @@ else
       mkdir -p "$HOME/.config/fish/functions"
       if [[ -f "$HOME/.config/fish/functions/claude.fish" ]] && ! grep -q "Agents Away" "$HOME/.config/fish/functions/claude.fish"; then
         warn "~/.config/fish/functions/claude.fish exists and isn't Agents Away's — left alone. See shell/claude.fish."
-      else cp "$ROOT/shell/claude.fish" "$HOME/.config/fish/functions/claude.fish"; echo "    installed ~/.config/fish/functions/claude.fish"; fi ;;
+      else cp "$ROOT/shell/claude.fish" "$HOME/.config/fish/functions/claude.fish"; echo "    installed ~/.config/fish/functions/claude.fish"; fi
+      # pi (https://pi.dev), only if it's installed
+      if command -v pi >/dev/null 2>&1; then
+        if [[ -f "$HOME/.config/fish/functions/pi.fish" ]] && ! grep -q "Agents Away" "$HOME/.config/fish/functions/pi.fish"; then
+          warn "~/.config/fish/functions/pi.fish exists and isn't Agents Away's — left alone. See shell/pi.fish."
+        else cp "$ROOT/shell/pi.fish" "$HOME/.config/fish/functions/pi.fish"; echo "    installed ~/.config/fish/functions/pi.fish"; fi
+      fi ;;
     bash|zsh)
       cp "$ROOT/shell/claude.sh" "$CFG/claude.sh"
       rc=$(shell_rc); touch "$rc"

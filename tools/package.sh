@@ -16,7 +16,7 @@ mkdir -p "$out"; out=$(cd "$out" && pwd)
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 
 # What a server install needs (install.sh, the service, the CLI, the web app) plus the docs.
-paths=(src public bin shell skills install.sh agents-away.service.in tmux.conf package.json bun.lock
+paths=(src public bin shell skills pi install.sh agents-away.service.in tmux.conf package.json bun.lock
   README.md LICENSE CHANGELOG.md SECURITY.md .gitignore)
 dir="agents-away-$v"
 git archive --format=tar --prefix="$dir/" HEAD -- "${paths[@]}" | tar -x -C "$tmp"

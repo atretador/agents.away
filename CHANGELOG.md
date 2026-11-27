@@ -3,6 +3,16 @@
 All notable changes to Agents Away. Versions follow [Semantic Versioning](https://semver.org/); while the
 version is 0.x, minor releases may change behaviour or configuration.
 
+## Unreleased
+
+### pi
+- [pi](https://pi.dev) sessions appear next to Claude Code and OpenCode ones: follow the chat (messages, tool
+  calls, results, thinking), reply, interrupt, see the context %, get a "finished" notification, start new
+  sessions and resume old ones. `agents-away hooks install` installs a small pi extension
+  (`~/.pi/agent/extensions/agents-away.ts`) and the installer adds a `pi` wrapper that runs it in the
+  `agents-away` tmux socket. pi has no permission prompts, so there are no approval cards; subagents and a
+  terminal tab aren't supported yet.
+
 ## 0.2.1 — 2026-11-27
 
 ### Fixed

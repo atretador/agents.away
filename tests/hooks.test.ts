@@ -1,6 +1,6 @@
 // The hooks installer edits ~/.claude/settings.json: run the real CLI against a temp HOME.
 import { test, expect, describe } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 const CLI = join(import.meta.dir, "../bin/agents-away");
@@ -69,4 +69,19 @@ test("status notices hooks installed by an older version", () => {
   expect(run(h, "status").out).toContain("out of date");
   run(h, "install");
   expect(run(h, "status").out).toContain("hooks are installed.");
+});
+
+test("installs and removes the pi extension when pi is set up", () => {
+  const h = home({});
+  mkdirSync(join(h, ".pi/agent"), { recursive: true });
+  const ext = join(h, ".pi/agent/extensions/agents-away.ts");
+  expect(run(h, "status").out).toContain("pi extension is not installed");
+  expect(run(h, "install").out).toContain("Installed the pi extension");
+  expect(readFileSync(ext, "utf8")).toBe(readFileSync(join(import.meta.dir, "../pi/agents-away.ts"), "utf8"));
+  expect(run(h, "status").out).toContain("pi extension is installed.");
+  writeFileSync(ext, "// old");
+  expect(run(h, "status").out).toContain("out of date");
+  run(h, "install");
+  run(h, "uninstall");
+  expect(existsSync(ext)).toBe(false);
 });

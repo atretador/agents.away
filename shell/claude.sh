@@ -36,3 +36,38 @@ claude() {
   local hash='#'
   tmux -L "$sock" -f "$conf" new-session -s "$name" -c "${PWD//$hash/##}" "${envargs[@]}" -- "$bin" "$@"
 }
+
+# Same for pi (https://pi.dev); its sessions get the pi-<folder> tmux name.
+pi() {
+  if [ -n "${TMUX:-}" ] || [ -n "${AWAY_NO_TMUX:-}" ] || [ ! -t 0 ] || [ ! -t 1 ]; then
+    command pi "$@"; return
+  fi
+  local a
+  for a in "$@"; do
+    case "$a" in -p|--print|-v|--version|-h|--help|--mode) command pi "$@"; return ;; esac
+  done
+  case "${1:-}" in
+    install|remove|uninstall|update|list|config) command pi "$@"; return ;;
+  esac
+  # AWAY_TMUX_SOCKET / AWAY_CONFIG_DIR: same overrides as the server (e.g. a separate test instance).
+  local sock="${AWAY_TMUX_SOCKET:-agents-away}" conf="${AWAY_CONFIG_DIR:-$HOME/.config/agents-away}/tmux.conf" base name i=2 v val
+  base=$(basename "$PWD" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_-]+/-/g; s/^-+|-+$//g' | cut -c1-20)
+  [ -n "$base" ] || base=home
+  name="pi-$base"
+  while tmux -L "$sock" -f "$conf" has-session -t "=$name" 2>/dev/null; do
+    name="pi-$base-$i"; i=$((i + 1))
+  done
+  local envargs=()
+  for v in PATH LANG LC_ALL DISPLAY WAYLAND_DISPLAY XDG_RUNTIME_DIR XDG_SESSION_TYPE XDG_CURRENT_DESKTOP \
+           DBUS_SESSION_BUS_ADDRESS COLORTERM SSH_AUTH_SOCK EDITOR VISUAL; do
+    eval "val=\${$v:-}"
+    [ -n "$val" ] && envargs+=(-e "$v=$val")
+  done
+  # The real binary, not this function (bash: type -P, zsh: whence -p).
+  local bin
+  bin=$(type -P pi 2>/dev/null || whence -p pi 2>/dev/null)
+  [ -n "$bin" ] || { echo "pi: not found on PATH" >&2; return 127; }
+  # tmux expands #(...) in -c: double every "#" (a variable pattern, so bash and zsh read it the same).
+  local hash='#'
+  tmux -L "$sock" -f "$conf" new-session -s "$name" -c "${PWD//$hash/##}" "${envargs[@]}" -- "$bin" "$@"
+}

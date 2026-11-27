@@ -395,10 +395,10 @@ function loginShell(): string {
 /** A string tmux won't expand as a format (#(cmd), #{var}): "#" → "##". */
 export const tmuxLiteral = (s: string) => s.replaceAll("#", "##");
 
-export async function newSession(cwd: string, name: string, claudeArgs: string[]) {
+export async function newSession(cwd: string, name: string, claudeArgs: string[], bin: "claude" | "pi" = "claude") {
   const sh = loginShell();
   const quote = /fish$/.test(sh) ? fishQuote : posixQuote;
-  const cmd = ["exec", "claude", ...claudeArgs.map(quote)].join(" ");
+  const cmd = ["exec", bin, ...claudeArgs.map(quote)].join(" ");
   // tmux expands #(...) formats in -c: escape "#" so a folder name can never run a command.
   const args = ["new-session", "-d", "-s", name, "-c", tmuxLiteral(cwd), "-x", "80", "-y", "50", "--", sh, "-l", "-c", cmd];
   const running = (await tmux(TMUX_SOCKET, ["list-sessions"])).ok;

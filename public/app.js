@@ -96,6 +96,8 @@ const vibrate = (n = 10) => navigator.vibrate?.(n);
 // Inside the Agents Away Android app: it provides profiles (several PCs), notifications and certificate
 // trust itself, through this bridge. Absent in a browser / installed web app.
 const NATIVE = window.AwayNative ?? null;
+/** The coding agent behind a session, as shown to the user ("pi" is a product name, not translated). */
+const agentName = (kind) => (kind === "opencode" ? "OpenCode" : kind === "pi" ? "pi" : "Claude");
 I.swap = '<path d="M7 7h11l-3-3M17 17H6l3 3"/>';
 /** Ask the server for a resized WebP (360 thumbs, 800 chat/notification, 1600 full view). */
 const sized = (url, w) => url + (url.includes("?") ? "&" : "?") + "w=" + w;
@@ -344,7 +346,7 @@ function sessionCard(s) {
     <div class="when">${s.status === "working" ? `<span class="chip work">${tr("Working")}</span>` : esc(when)}</div>
     <div class="meta">
       ${s.status !== "working" ? `<span class="chip ${s.status === "waiting" ? "wait" : "ok"}">${STATUS_LABEL[s.status]}</span>` : ""}
-      ${s.kind === "opencode" ? `<span class="chip oc">OpenCode</span>` : ""}
+      ${s.kind === "opencode" ? `<span class="chip oc">OpenCode</span>` : s.kind === "pi" ? `<span class="chip oc">pi</span>` : ""}
       ${s.canReply ? "" : `<span class="chip" title="${tr("Not in tmux")}">${icon("eye").replace("<svg", '<svg width="12" height="12"')} ${tr("watch")}</span>`}
       <span class="path">${esc(s.home)}</span>
     </div>
@@ -647,7 +649,7 @@ function updateSessionChrome() {
         const info = S.ended?.id === S.view.id ? S.ended : await api(`/api/session/${S.view.id}/info`).catch(() => null);
         if (!info?.cwd) return toast(tr("Don't know which folder it ran in"), true);
         if (!(await ask(tr("Resume this session?"), tr("It opens in a new terminal on the PC. Make sure it isn't still open somewhere."), tr("Resume")))) return;
-        try { await api("/api/new", { cwd: info.cwd, resume: S.view.id, ...launchBody() }); toast(tr("Resuming… it will appear on the home screen")); nav("#/"); }
+        try { await api("/api/new", { cwd: info.cwd, resume: S.view.id, ...(info.kind === "pi" ? { agent: "pi" } : launchBody()) }); toast(tr("Resuming… it will appear on the home screen")); nav("#/"); }
         catch (e) { toast(e.message, true); }
       };
     }
@@ -655,7 +657,7 @@ function updateSessionChrome() {
     return;
   }
   t.textContent = sname(s);
-  sub.innerHTML = `<span class="dot ${s.status}" style="width:7px;height:7px"></span>${STATUS_LABEL[s.status]} · ${s.kind === "opencode" ? `<b class="oc-tag">OpenCode${s.agentName ? " · " + esc(s.agentName) : ""}</b> · ` : ""}${esc(s.home)}`;
+  sub.innerHTML = `<span class="dot ${s.status}" style="width:7px;height:7px"></span>${STATUS_LABEL[s.status]} · ${s.kind === "opencode" ? `<b class="oc-tag">OpenCode${s.agentName ? " · " + esc(s.agentName) : ""}</b> · ` : s.kind === "pi" ? `<b class="oc-tag">pi</b> · ` : ""}${esc(s.home)}`;
   renderDock(s);
   renderTyping(s);
   renderHeadExtras(s);
@@ -759,7 +761,7 @@ function renderDock(s) {
   if (!s.canReply) {
     html += `<div class="watch-only">${tr("<b>Watch-only.</b> This session was started outside tmux, so Agents Away can show it but can't type into it. To reply from here: exit it on the PC and resume it from <b>New session → Resume</b>, or run <code>claude --resume</code> again (new sessions go through tmux automatically).")}</div>`;
   } else {
-    html += `${S.keysOpen ? `<div class="keys"><button id="palbtn" class="accent-key">${icon("zap")} ${s.kind === "opencode" ? tr("Quick replies") : tr("Commands")}</button>${(s.kind === "opencode" && !ocTerm ? [[tr("Esc — interrupt"), "Escape"]] : [
+    html += `${S.keysOpen ? `<div class="keys">${s.kind === "pi" ? "" : `<button id="palbtn" class="accent-key">${icon("zap")} ${s.kind === "opencode" ? tr("Quick replies") : tr("Commands")}</button>`}${(s.kind === "opencode" && !ocTerm ? [[tr("Esc — interrupt"), "Escape"]] : [
       ["Esc", "Escape"], ["⏎", "Enter"], ["↑", "Up"], ["↓", "Down"], ["Tab", "Tab"], ["⇧Tab", "BTab"], ["^C", "C-c"], ["^O", "C-o"], ["1", "1"], ["2", "2"], ["3", "3"], ["y", "y"], ["n", "n"],
     ]).map(([l, k]) => `<button data-key="${k}">${l}</button>`).join("")}</div>` : ""}
     <div class="attachments" id="atts"></div>
@@ -767,7 +769,7 @@ function renderDock(s) {
       <button class="icon-btn ${S.keysOpen ? "on" : ""}" id="kbtn" aria-label="${tr("Keys")}">${icon("keys")}</button>
       <button class="icon-btn" id="abtn" aria-label="${tr("Attach image or file")}">${icon("clip")}</button>
       <input type="file" id="afile" accept="image/*,application/pdf,text/*,.md,.json,.log,.csv" multiple hidden>
-      <textarea id="msg" rows="1" placeholder="${ocTerm ? tr("Type into the terminal…") : tr("Message {agent}…", { agent: s.kind === "opencode" ? "OpenCode" : "Claude" })}" enterkeyhint="send"></textarea>
+      <textarea id="msg" rows="1" placeholder="${ocTerm ? tr("Type into the terminal…") : tr("Message {agent}…", { agent: agentName(s.kind) })}" enterkeyhint="send"></textarea>
       <button class="icon-btn send" id="sendbtn" aria-label="${tr("Send")}" disabled>${icon("send")}</button>
     </div>`;
   }
@@ -1989,7 +1991,7 @@ async function openNew() {
   const showNew = () => {
     const agent = prefs.launchAgent ?? "claude";
     pane.innerHTML = `
-      <div class="seg-row" id="agentsel" style="margin-bottom:14px"><button data-a="claude" class="${agent === "claude" ? "on" : ""}">Claude Code</button><button data-a="opencode" class="${agent === "opencode" ? "on" : ""}">OpenCode</button></div>
+      <div class="seg-row" id="agentsel" style="margin-bottom:14px"><button data-a="claude" class="${agent === "claude" ? "on" : ""}">Claude Code</button><button data-a="opencode" class="${agent === "opencode" ? "on" : ""}">OpenCode</button>${data.pi ? `<button data-a="pi" class="${agent === "pi" ? "on" : ""}">pi</button>` : ""}</div>
       <div class="field"><label>${tr("Folder")}</label><input id="cwd" autocapitalize="off" autocorrect="off" spellcheck="false" value="${esc(data.dirs[0]?.home ?? "~")}"></div>
       <div class="dirs">${data.dirs.slice(0, 14).map((d, i) => `<button data-dir="${esc(d.home)}" class="${i === 0 ? "on" : ""}">${esc(d.home)}</button>`).join("")}</div>
       <div class="spacer"></div><div class="spacer"></div>
@@ -1998,9 +2000,11 @@ async function openNew() {
       <button class="btn primary block" id="go">${tr("Start session")}</button>`;
     const box = pane.querySelector("#launchbox");
     const drawLaunch = () => {
-      if ((prefs.launchAgent ?? "claude") === "opencode") ocPicker(box);
+      const ag = prefs.launchAgent ?? "claude";
+      if (ag === "opencode") ocPicker(box);
+      else if (ag === "pi") box.innerHTML = `<div class="muted" style="padding:6px 0 14px">${tr("pi starts with its own default model; change it in pi with /model.")}</div>`;
       else { box.innerHTML = launchPicker(); wireLaunch(box); }
-      pane.querySelector("#first").placeholder = tr("What should {agent} do?", { agent: (prefs.launchAgent ?? "claude") === "opencode" ? "OpenCode" : "Claude" });
+      pane.querySelector("#first").placeholder = tr("What should {agent} do?", { agent: agentName(ag) });
     };
     drawLaunch();
     pane.querySelectorAll("#agentsel button").forEach((b) => (b.onclick = () => {
@@ -2021,6 +2025,9 @@ async function openNew() {
           const r = await api("/api/new", { cwd, prompt, agent: "opencode", ocModel: c.model || undefined, ocVariant: c.variant || undefined, ocAgent: o.agent || undefined });
           close(); toast(tr("OpenCode session started")); vibrate(20);
           if (r.id) nav("#/s/" + r.id);
+        } else if ((prefs.launchAgent ?? "claude") === "pi") {
+          await api("/api/new", { cwd, prompt, agent: "pi" });
+          close(); toast(tr("Starting…")); vibrate(20);
         } else {
           await api("/api/new", { cwd, prompt, ...launchBody() });
           close(); toast(tr("Starting…")); vibrate(20);
@@ -2029,13 +2036,13 @@ async function openNew() {
     };
   };
   const showResume = () => {
-    pane.innerHTML = launchPicker() + (data.recent.length ? data.recent.map((r) => `<button class="list-row" data-sid="${esc(r.sessionId)}" data-cwd="${esc(r.cwd)}">
+    pane.innerHTML = launchPicker() + (data.recent.length ? data.recent.map((r) => `<button class="list-row" data-sid="${esc(r.sessionId)}" data-cwd="${esc(r.cwd)}" data-kind="${esc(r.kind ?? "claude")}">
       <div class="grow"><div class="t">${esc(r.title || r.sessionId.slice(0, 8))}</div><div class="s">${esc(r.home)}</div></div><span class="muted" style="font-size:12px">${ago(r.mtime)}</span></button>`).join("")
       : `<div class="empty">${tr("No recent sessions")}</div>`);
     wireLaunch(pane);
     pane.querySelectorAll("[data-sid]").forEach((b) => (b.onclick = async () => {
       if (!(await ask(tr("Resume “{title}”?", { title: b.querySelector(".t").textContent }), tr("Make sure it isn't still open in a terminal on the PC."), tr("Resume")))) return;
-      try { await api("/api/new", { cwd: b.dataset.cwd, resume: b.dataset.sid, ...launchBody() }); close(); toast(tr("Resuming…")); }
+      try { await api("/api/new", { cwd: b.dataset.cwd, resume: b.dataset.sid, ...(b.dataset.kind === "pi" ? { agent: "pi" } : launchBody()) }); close(); toast(tr("Resuming…")); }
       catch (err) { toast(err.message, true); }
     }));
   };

@@ -3,7 +3,7 @@
 [![CI](https://github.com/atretador/agents.away/actions/workflows/ci.yml/badge.svg)](https://github.com/atretador/agents.away/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**A phone companion for the Claude Code (and OpenCode) sessions running on your own PC.**
+**A phone companion for the Claude Code (and OpenCode, and pi) sessions running on your own PC.**
 Follow a session's chat live, answer it, approve permission prompts, get push notifications when
 it needs you or finishes, and let Claude send you screenshots to approve, all from your phone.
 
@@ -66,6 +66,7 @@ its notifications straight from them, with no push service in between.
 - **Start, resume and end sessions** from the phone, choosing model, effort and permission mode.
 - **Search** across all past Claude Code transcripts.
 - **OpenCode** sessions too (optional), through OpenCode's own server API.
+- **pi** sessions too (optional): read, reply, interrupt and start them, like Claude Code ones (see [pi](#pi-optional)).
 - **Themes:** Warm Light and Warm Dark, neutral Light and Dark, and Black (near-black, OpenCode-style);
   Auto follows the phone. Accent colours and text size too.
 - **Languages:** English, Spanish and Brazilian Portuguese. It follows the phone's language, or pick one
@@ -76,7 +77,7 @@ its notifications straight from them, with no push service in between.
 - Linux with a systemd user session (Arch, Debian/Ubuntu, Fedora… tested on Arch).
 - [Bun](https://bun.sh) ≥ 1.1, `tmux` ≥ 3.2, `openssl`.
 - [Claude Code](https://docs.claude.com/en/docs/claude-code) (`claude` on your PATH).
-- Optional: `ripgrep` (search), `qrencode` (QR codes when pairing), OpenCode.
+- Optional: `ripgrep` (search), `qrencode` (QR codes when pairing), OpenCode, [pi](https://pi.dev).
 - A phone on the same network as the PC, or connected to it over a VPN. Android/Chrome works best;
   iOS needs the app added to the Home Screen before it can receive notifications (iOS 16.4+).
 
@@ -90,6 +91,7 @@ feature without warning, so here is exactly what it has been tested with:
 |---|---|---|
 | Claude Code | 2.1.329 | Newer versions usually work; if something breaks after an update, open an issue with the version |
 | OpenCode | 2.3.2 | Optional; uses OpenCode's own server API |
+| pi | 0.80.2 | Optional; reads pi's session files and uses a small pi extension for status |
 | OS | Arch Linux (kernel 7.3) | Any Linux with a systemd user session should work; macOS/Windows aren't supported |
 | Bun / tmux | 1.4.4 / 3.8 | Bun ≥ 1.1 and tmux ≥ 3.2 required |
 | Shell | fish 4.9 | The bash/zsh wrapper is included but has had less real-world use |
@@ -250,6 +252,20 @@ agents-away review --withdraw <id>    # take back a review that's no longer rele
 agents-away notify "Title" "Body"     # a plain push
 ```
 
+### pi (optional)
+
+If [pi](https://pi.dev) is installed, `agents-away hooks install` also installs a small extension into
+`~/.pi/agent/extensions/` (`agents-away hooks uninstall` removes it) and the installer adds a `pi`
+wrapper that starts pi in the same `agents-away` tmux socket as Claude Code. A running pi appears in
+the app like a Claude Code session: you can follow the chat (messages, tool calls, results, collapsed
+thinking), reply, interrupt (Esc, from the keys row), see the context-window %, get a notification when it
+finishes a turn, start new pi sessions and resume old ones. Already-running pis load the extension with
+`/reload`.
+
+pi has no permission prompts, so there are no approval cards, and v1 has no subagents or terminal tab.
+Sessions started outside the wrapper (not in tmux) are watch-only, as with Claude Code. New pi sessions
+start with pi's own default model.
+
 ### OpenCode (optional)
 
 If [OpenCode](https://opencode.ai) is installed, its sessions appear in the app whenever its
@@ -387,8 +403,8 @@ doesn't proxy, share or resell access. To stay within
 This is a summary, not legal advice; the linked terms are what count.
 
 Agents Away is an independent open-source project, not affiliated with or endorsed by Anthropic or
-OpenCode. Claude and Claude Code are trademarks of Anthropic, PBC; OpenCode is a project of its
-respective owners. They're named here only to say what Agents Away works with.
+OpenCode or pi. Claude and Claude Code are trademarks of Anthropic, PBC; OpenCode and pi are projects of
+their respective owners. They're named here only to say what Agents Away works with.
 
 ## Changelog
 

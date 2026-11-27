@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // Agents Away CLI: Claude Code hook forwarding, image reviews, notifications, pairing.
-import { readFileSync, existsSync, statSync, mkdirSync, writeFileSync, rmSync, realpathSync } from "node:fs";
+import { readFileSync, existsSync, statSync, mkdirSync, writeFileSync, rmSync, realpathSync, copyFileSync } from "node:fs";
 import { homedir, networkInterfaces } from "node:os";
 import { X509Certificate, createHash, randomBytes } from "node:crypto";
 import { join, basename, resolve, dirname } from "node:path";
@@ -120,7 +120,7 @@ function usage() {
   agents-away status                       Show what the server sees
   agents-away updates on|off|check|status  Daily check for a new release on GitHub (off by default);
                                      a newer one is announced with one notification
-  agents-away hooks install|uninstall|status   Manage the Claude Code hooks Agents Away needs
+  agents-away hooks install|uninstall|status   Manage the Claude Code hooks (and the pi extension) Agents Away needs
   agents-away skill install|uninstall|status [--claude|--opencode]
                                      The agents-away-review skill (lets agents send you things to review)
   agents-away hook                         (used by Claude Code hooks; reads JSON on stdin)`);
@@ -449,6 +449,25 @@ async function attach(args: string[]) {
   process.exit(await p.exited);
 }
 
+// ───────── pi extension (installed into ~/.pi/agent/extensions/) ─────────
+const PI_EXT_SRC = join(import.meta.dir, "../pi/agents-away.ts");
+const piExtDir = () => join(process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi/agent"), "extensions");
+const piExtFile = () => join(piExtDir(), "agents-away.ts");
+const hasPi = () => existsSync(join(process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi/agent"))) || Bun.which("pi") !== null;
+function piExt(sub: string): string | null {
+  if (!hasPi()) return null;
+  const dest = piExtFile();
+  const same = existsSync(dest) && readFileSync(dest, "utf8") === readFileSync(PI_EXT_SRC, "utf8");
+  if (sub === "status") return !existsSync(dest) ? "pi extension is not installed." : same ? "pi extension is installed." : "pi extension is installed but out of date: run agents-away hooks install";
+  if (sub === "install") {
+    mkdirSync(piExtDir(), { recursive: true });
+    copyFileSync(PI_EXT_SRC, dest);
+    return `Installed the pi extension (${dest}); a running pi picks it up with /reload.`;
+  }
+  if (existsSync(dest)) { rmSync(dest); return `Removed the pi extension (${dest}).`; }
+  return null;
+}
+
 // ───────── Claude Code hooks (install into ~/.claude/settings.json) ─────────
 const HOOK_EVENTS = ["Notification", "Stop", "UserPromptSubmit", "PostToolUse", "PreToolUse"];
 // PreToolUse only for AskUserQuestion: it carries the questions before the transcript has them.
@@ -472,6 +491,7 @@ async function hooks(sub: string | undefined) {
     console.log(present.length === HOOK_EVENTS.length && !stale.length ? "Agents Away hooks are installed."
       : stale.length ? `Agents Away hooks are installed but out of date (${stale.join(", ")}): run agents-away hooks install`
       : present.length ? `Partly installed: ${present.join(", ")}` : "Agents Away hooks are not installed.");
+    const pst = piExt("status"); if (pst) console.log(pst);
     return;
   }
   if (sub !== "install" && sub !== "uninstall") { console.error("agents-away hooks install|uninstall|status"); process.exit(2); }
@@ -489,6 +509,7 @@ async function hooks(sub: string | undefined) {
   if (!Object.keys(settings.hooks).length) delete settings.hooks;
   writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");
   console.log(sub === "install" ? `Installed Agents Away hooks (${HOOK_EVENTS.join(", ")}) in ${file}` : `Removed Agents Away hooks from ${file}`);
+  const pmsg = piExt(sub); if (pmsg) console.log(pmsg);
 }
 
 const VERSION = JSON.parse(readFileSync(join(import.meta.dir, "../package.json"), "utf8")).version as string;

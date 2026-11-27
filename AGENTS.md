@@ -46,12 +46,14 @@ User-facing docs: [README.md](README.md). This file is for coding agents changin
 | `src/auth.ts` | Phone sign-in: one-time pairing codes (10 min), per-device sessions with sliding expiry (`settings.signInDays`), device list / sign-out |
 | `src/push.ts` | Web Push subscriptions and sending |
 | `src/updates.ts` | Opt-in release check (`settings.updateCheck`, `agents-away updates`): GitHub latest release once a day, state in `DATA_DIR/update.json`, one push per newer version |
+| `src/pi.ts` | pi support: live sessions from the extension's pid files (`CFG_DIR/pi/<pid>.json`), transcript lookup/parsing (`parsePiOne`, called from `parseLines`), titles, recent sessions |
+| `pi/agents-away.ts` | The pi extension (installed to `~/.pi/agent/extensions/` by `agents-away hooks install`): writes the pid file, sends UserPromptSubmit/Stop hook events |
 | `src/config.ts` | Paths, ports, config/secrets, settings defaults |
 | `bin/agents-away` | CLI (Bun script): `hook`, `hooks`, `review`, `notify`, `pair`, `status`, `updates`, `attach` |
 | `bin/agents-away-certs` | Creates the private CA and server certificate |
 | `public/` | PWA: `index.html`, `app.js`, `app.css`, `sw.js` (push + notification actions), onboarding pages, icons |
 | `public/i18n.js`, `public/i18n/*.js` | Phone UI translations (`tr`/`trn`); `public/page-i18n.js` translates `onboard.html` and `unpaired.html` |
-| `shell/` | `claude` wrappers (fish, bash/zsh) that start sessions in `tmux -L agents-away` |
+| `shell/` | `claude` and `pi` wrappers (fish: `claude.fish`, `pi.fish`; bash/zsh: `claude.sh` has both) that start sessions in `tmux -L agents-away` |
 | `skills/agents-away-review/` | Claude Code skill telling Claude how to use `agents-away review` |
 | `install.sh`, `agents-away.service.in`, `tmux.conf` | Installation |
 | `android/` | Optional Android app (Kotlin, Gradle): profiles for several PCs, each shown in a WebView of that PC's web app; see "Android app" below |
@@ -108,6 +110,18 @@ User-facing docs: [README.md](README.md). This file is for coding agents changin
 - **Skill:** `agents-away skill install|uninstall|status [--claude|--opencode]` copies
   `skills/agents-away-review` to `~/.claude/skills`; OpenCode loads that folder too, so it only gets its
   own copy (`~/.config/opencode/skills`) when it can't see the Claude one.
+- **pi** (`kind: "pi"`): a terminal TUI like Claude Code, so it's matched to a tmux pane by tty and driven with
+  the same `sendText`/`sendKeys`. pi writes no per-process file, so the extension keeps
+  `CFG_DIR/pi/<pid>.json` (`{pid, sessionId, file, cwd, name, status busy|idle, model, context}`) up to date
+  and runs `agents-away hook` with Claude-shaped events (`UserPromptSubmit` on `agent_start`, `Stop` on a
+  normal `agent_end`; failed turns are retried by pi, so they don't notify). `listPiProcs()` believes a pid
+  file only while `/proc/<pid>/cmdline` is a pi (stale files are deleted). Transcripts are
+  `~/.pi/agent/sessions/--<cwd>--/<timestamp>_<id>.jsonl` (flat when `PI_CODING_AGENT_SESSION_DIR` is set; no
+  file exists until the first message): lines `{"type":"message","message":{role: user|assistant|toolResult,
+  content: text|thinking|toolCall|image blocks}}`; `toolCall.arguments` can be an object or a JSON string.
+  `parseLines` dispatches on that prefix, so `readTail`, paging and watching work unchanged. No prompt/ask/
+  background detection and no approval cards (pi has no permission prompts); new sessions run `pi [--model]
+  [--session <id>] [prompt]` (pi has no `--`: a leading `-` or `@` in the prompt gets a space in front).
 - **OpenCode:** polled every 5 s plus the SSE `/api/event` stream. Chat sync diffs item signatures
   and sends either the new suffix or a reset. Its OpenAPI spec is at `/openapi.json` on its server.
   - *Question forms* (`question` tool, event `form.created`/`replied`/`cancelled`): pending ones from
