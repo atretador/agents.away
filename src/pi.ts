@@ -199,3 +199,42 @@ export function pendingFirstMessage(id: string, path: string | null, tmuxName?: 
   if (hasMessages(path)) { for (const k of keys) pendingFirst.delete(k); return null; }
   return text;
 }
+
+// ───────── models (new-session picker) ─────────
+export type PiModel = { ref: string; provider: string; name: string; context: string; thinking: boolean; images: boolean };
+export const PI_THINKING = ["off", "minimal", "low", "medium", "high", "xhigh"];
+
+let catalogCache: { at: number; value: { models: PiModel[]; defaultModel: string; defaultThinking: string; recent: string[] } } | null = null;
+
+/** pi's available models (`pi --list-models`, offline), its configured default and the models of recent sessions. */
+export async function piCatalog() {
+  if (catalogCache && Date.now() - catalogCache.at < 60_000) return catalogCache.value;
+  const p = Bun.spawn(["pi", "--list-models"], { env: { ...process.env, PI_OFFLINE: "1" }, stdout: "pipe", stderr: "ignore", stdin: "ignore" });
+  const timer = setTimeout(() => p.kill(), 15_000);
+  const out = await new Response(p.stdout).text();
+  clearTimeout(timer);
+  await p.exited;
+  const models: PiModel[] = [];
+  for (const line of out.split("\n")) {
+    const c = line.trim().split(/\s+/);
+    if (c.length < 6 || c[0] === "provider") continue;
+    models.push({ ref: `${c[0]}/${c[1]}`, provider: c[0], name: c[1], context: c[2], thinking: c[4] === "yes", images: c[5] === "yes" });
+  }
+  let defaultModel = "", defaultThinking = "";
+  try {
+    const st = JSON.parse(readFileSync(join(PI_AGENT_DIR, "settings.json"), "utf8"));
+    if (st.defaultProvider && st.defaultModel) defaultModel = `${st.defaultProvider}/${st.defaultModel}`;
+    if (typeof st.defaultThinkingLevel === "string") defaultThinking = st.defaultThinkingLevel;
+  } catch {}
+  // Models used in the newest sessions (the last model_change in each file's first 64 KB).
+  const recent: string[] = [];
+  for (const r of recentPiSessions(12)) {
+    try {
+      const ms = [...head(r.path, 64 * 1024).matchAll(/"type":"model_change"[^\n]*?"provider":"([^"]+)","modelId":"([^"]+)"/g)].pop();
+      if (ms && !recent.includes(`${ms[1]}/${ms[2]}`)) recent.push(`${ms[1]}/${ms[2]}`);
+    } catch {}
+  }
+  const value = { models, defaultModel, defaultThinking, recent: recent.slice(0, 6) };
+  if (models.length) catalogCache = { at: Date.now(), value };
+  return value;
+}

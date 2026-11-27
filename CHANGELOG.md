@@ -8,7 +8,7 @@ version is 0.x, minor releases may change behaviour or configuration.
 ### pi
 - [pi](https://pi.dev) sessions appear next to Claude Code and OpenCode ones: follow the chat (messages, tool
   calls, results, thinking), reply, interrupt, see the context %, get a "finished" notification, start new
-  sessions and resume old ones. `agents-away hooks install` installs a small pi extension
+  sessions (choosing the model and thinking level) and resume old ones. `agents-away hooks install` installs a small pi extension
   (`~/.pi/agent/extensions/agents-away.ts`) and the installer adds a `pi` wrapper that runs it in the
   `agents-away` tmux socket. pi has no permission prompts, so there are no approval cards; subagents and a
   terminal tab aren't supported yet.

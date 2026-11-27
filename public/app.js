@@ -1981,6 +1981,47 @@ async function ocPicker(box) {
   draw();
 }
 
+// pi: model (searchable) and thinking level pickers; models come from `pi --list-models`.
+async function piPicker(box) {
+  box.innerHTML = `<div class="muted" style="padding:10px 0">${tr("Loading pi models…")}</div>`;
+  let cat;
+  try { cat = S.piCatalog = await api("/api/pi/catalog"); }
+  catch (e) { if (!(cat = S.piCatalog)) { box.innerHTML = `<div class="watch-only">${esc(e.message)}</div>`; return; } }
+  const o = (prefs.pi ??= {});
+  const find = (r) => cat.models.find((x) => x.ref === r);
+  const pick = (ref) => { o.model = ref; o.thinking = ""; o.recent = [ref, ...(o.recent ?? []).filter((r) => r !== ref)].slice(0, 6); savePrefs(); };
+  // Default = this phone's last pick, else pi's configured default (left to pi when neither is known here).
+  box.piChoice = () => {
+    const model = find(o.model) ? o.model : "";
+    const m = find(model || cat.defaultModel);
+    const thinking = o.thinking && m?.thinking ? o.thinking : "";
+    return { model, thinking };
+  };
+  const LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"];
+  const draw = (q = "") => {
+    const { model, thinking } = box.piChoice();
+    const sel = model || cat.defaultModel;
+    const m = find(sel);
+    const ql = q.toLowerCase();
+    const list = q ? cat.models.filter((x) => x.ref.toLowerCase().includes(ql)).slice(0, 30) : [];
+    const recent = [...new Set([...(o.recent ?? []), ...(cat.recent ?? [])])].filter(find).slice(0, 6).map(find);
+    box.innerHTML = `
+      <div class="field"><label>${tr("Model")}</label>
+        <div class="oc-model">${m ? `<b>${esc(m.name)}</b> <span class="muted">${esc(m.provider)}</span>` : esc(sel || tr("Default"))}${model ? ` <button class="linkbtn" id="pidef">${tr("use pi's default")}</button>` : ` <span class="muted">(${tr("pi's default")})</span>`}</div>
+        ${recent.length ? `<div class="chips oc-recent" aria-label="${tr("Recent models")}"><span class="muted">${tr("Recent")}</span>${recent.map((x) => `<button data-ref="${esc(x.ref)}" class="${x.ref === sel ? "on" : ""}" title="${esc(x.ref)}">${esc(x.name)}</button>`).join("")}</div>` : ""}
+        <input id="piq" placeholder="${tr("Search {n} models…", { n: cat.models.length })}" value="${esc(q)}" autocomplete="off" style="font-family:var(--font)">
+        ${list.length ? `<div class="oc-list">${list.map((x) => `<button data-ref="${esc(x.ref)}" class="${x.ref === sel ? "on" : ""}"><span>${esc(x.name)}</span><span class="muted">${esc(x.provider)}</span></button>`).join("")}</div>` : ""}
+      </div>
+      ${m?.thinking ? `<div class="field"><label>${tr("Thinking")}</label><div class="chips" id="pith"><button data-v="" class="${!thinking ? "on" : ""}">${tr("Default")}</button>${LEVELS.map((v) => `<button data-v="${v}" class="${thinking === v ? "on" : ""}">${v}</button>`).join("")}</div></div>` : ""}`;
+    const qi = box.querySelector("#piq");
+    qi.oninput = () => { const v = qi.value; draw(v); const n = box.querySelector("#piq"); n.focus(); n.setSelectionRange(v.length, v.length); };
+    box.querySelectorAll("[data-ref]").forEach((b) => (b.onclick = () => { pick(b.dataset.ref); draw(""); }));
+    box.querySelector("#pidef")?.addEventListener("click", () => { o.model = ""; o.thinking = ""; savePrefs(); draw(""); });
+    box.querySelectorAll("#pith button").forEach((b) => (b.onclick = () => { o.thinking = b.dataset.v; savePrefs(); draw(q); }));
+  };
+  draw();
+}
+
 async function openNew() {
   const { el, close } = sheet(`<h3>${tr("New session")}</h3>
     <div class="tabs"><button class="on" data-t="new">${tr("Start")}</button><button data-t="resume">${tr("Resume")}</button></div>
@@ -2002,7 +2043,7 @@ async function openNew() {
     const drawLaunch = () => {
       const ag = prefs.launchAgent ?? "claude";
       if (ag === "opencode") ocPicker(box);
-      else if (ag === "pi") box.innerHTML = `<div class="muted" style="padding:6px 0 14px">${tr("pi starts with its own default model; change it in pi with /model.")}</div>`;
+      else if (ag === "pi") piPicker(box);
       else { box.innerHTML = launchPicker(); wireLaunch(box); }
       pane.querySelector("#first").placeholder = tr("What should {agent} do?", { agent: agentName(ag) });
     };
@@ -2026,7 +2067,8 @@ async function openNew() {
           close(); toast(tr("OpenCode session started")); vibrate(20);
           if (r.id) nav("#/s/" + r.id);
         } else if ((prefs.launchAgent ?? "claude") === "pi") {
-          await api("/api/new", { cwd, prompt, agent: "pi" });
+          const c = box.piChoice?.() ?? {};
+          await api("/api/new", { cwd, prompt, agent: "pi", piModel: c.model || undefined, piThinking: c.thinking || undefined });
           close(); toast(tr("Starting…")); vibrate(20);
         } else {
           await api("/api/new", { cwd, prompt, ...launchBody() });

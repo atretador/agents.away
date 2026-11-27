@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseLines, transcriptPath, readTail } from "../src/claude";
-import { listPiProcs, piTitle, piTranscript, recentPiSessions, rememberFirst, pendingFirstMessage, PI_REG_DIR, PI_SESSIONS_DIR } from "../src/pi";
+import { listPiProcs, piTitle, piTranscript, recentPiSessions, rememberFirst, pendingFirstMessage, piCatalog, PI_REG_DIR, PI_SESSIONS_DIR } from "../src/pi";
 
 // pi's transcript format (~/.pi/agent/sessions/--<cwd>--/<timestamp>_<id>.jsonl)
 const msg = (message: object, id = Math.random().toString(16).slice(2, 10)) => JSON.stringify({ type: "message", id, parentId: null, timestamp: "2026-01-01T00:00:00.000Z", message });
@@ -102,4 +102,19 @@ test("pi: the first message is shown until the transcript has it", () => {
   writeFileSync(file, session(id, "/work/app") + "\n" + msg({ role: "user", content: "build a thing" }) + "\n");
   expect(pendingFirstMessage(id, file, "pi-app")).toBeNull();
   expect(pendingFirstMessage(id, null, "pi-app")).toBeNull();
+});
+
+test("pi: the model catalog comes from pi --list-models", async () => {
+  const bin = join(process.env.AWAY_TEST_ROOT!, "fakebin");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, "pi"), `#!/bin/sh\ncat <<'EOT'\nprovider  model  context  max-out  thinking  images\nlocal  small-1  131.1K  32.8K  yes  no\nopencode  big  1M  128K  no  yes\nEOT\n`, { mode: 0o755 });
+  const oldPath = process.env.PATH;
+  process.env.PATH = bin + ":" + oldPath;
+  try {
+    const c = await piCatalog();
+    expect(c.models).toEqual([
+      { ref: "local/small-1", provider: "local", name: "small-1", context: "131.1K", thinking: true, images: false },
+      { ref: "opencode/big", provider: "opencode", name: "big", context: "1M", thinking: false, images: true },
+    ]);
+  } finally { process.env.PATH = oldPath; }
 });

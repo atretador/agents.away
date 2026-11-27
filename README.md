@@ -259,12 +259,11 @@ If [pi](https://pi.dev) is installed, `agents-away hooks install` also installs 
 wrapper that starts pi in the same `agents-away` tmux socket as Claude Code. A running pi appears in
 the app like a Claude Code session: you can follow the chat (messages, tool calls, results, collapsed
 thinking), reply, interrupt (Esc, from the keys row), see the context-window %, get a notification when it
-finishes a turn, start new pi sessions and resume old ones. Already-running pis load the extension with
+finishes a turn, start new pi sessions (with a model and thinking level of your choice; it offers the models from `pi --list-models`) and resume old ones. Already-running pis load the extension with
 `/reload`.
 
 pi has no permission prompts, so there are no approval cards, and v1 has no subagents or terminal tab.
 Sessions started outside the wrapper (not in tmux) are watch-only, as with Claude Code. New pi sessions
-start with pi's own default model.
 
 ### OpenCode (optional)
 

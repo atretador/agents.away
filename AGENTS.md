@@ -122,6 +122,8 @@ User-facing docs: [README.md](README.md). This file is for coding agents changin
   `parseLines` dispatches on that prefix, so `readTail`, paging and watching work unchanged. No prompt/ask/
   background detection and no approval cards (pi has no permission prompts); new sessions run `pi [--model]
   [--session <id>] [prompt]` (pi has no `--`: a leading `-` or `@` in the prompt gets a space in front).
+  The new-session picker uses `GET /api/pi/catalog` (`piCatalog`: `pi --list-models` offline, 60 s cache, pi's
+  `settings.json` default, models of recent sessions); `/api/new` takes `piModel` (`provider/id`) and `piThinking`.
   pi writes its session file only once the first message is processed, so the server remembers that first
   message (`rememberFirst`/`pendingFirstMessage` in pi.ts; from `/api/new` keyed by tmux name, from the composer
   by session id) and serves it as a `pending` user item (and the card title) until the transcript has messages;

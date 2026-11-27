@@ -15,7 +15,7 @@ import {
 } from "./claude";
 import { detectAskForm, answerAsk, sameQuestion, type AskAnswer } from "./tmux";
 import { askQuestions, pendingAsk, isSessionId, type AskQuestion } from "./claude";
-import { listPiProcs, piTitle, recentPiSessions, PI_SESSIONS_DIR, rememberFirst, pendingFirstMessage } from "./pi";
+import { listPiProcs, piTitle, recentPiSessions, PI_SESSIONS_DIR, rememberFirst, pendingFirstMessage, piCatalog, PI_THINKING } from "./pi";
 import { onToolHook, toolForScreen, toolLine } from "./approval";
 import { setPushTap, type PushPayload } from "./push";
 import { addSubscription, removeSubscription, pushAll, subscriptionCount, type PushPayload } from "./push";
@@ -955,6 +955,9 @@ async function api(req: Request, url: URL, deviceKey: string): Promise<Response>
     await Bun.write(path, f);
     return json({ path, url: `/uploads/${encodeURIComponent(name)}`, type: f.type });
   }
+  if (p === "/api/pi/catalog") {
+    try { return json(await piCatalog()); } catch (e: any) { return err(e.message, 502); }
+  }
   if (p === "/api/opencode/catalog") {
     try { return json({ ...(await OC.catalog()), ...OC.recentModels() }); } catch (e: any) { return err(e.message, 502); }
   }
@@ -971,7 +974,8 @@ async function api(req: Request, url: URL, deviceKey: string): Promise<Response>
     }
     if (b.agent === "pi") {
       const args: string[] = [];
-      if (b.piModel && /^[\w./:-]{1,120}$/.test(String(b.piModel))) args.push("--model", String(b.piModel));
+      if (b.piModel && /^[\w./:@+-]{1,160}$/.test(String(b.piModel)) && !String(b.piModel).startsWith("-")) args.push("--model", String(b.piModel));
+      if (b.piThinking && PI_THINKING.includes(b.piThinking)) args.push("--thinking", String(b.piThinking));
       if (b.resume) { if (!isSessionId(b.resume)) return err("bad session id"); args.push("--session", b.resume); }
       // pi takes the first message as a plain argument (no "--"): a leading "-" would be an option and "@" a file.
       if (b.prompt) args.push(String(b.prompt).replace(/^(?=[-@])/, " "));

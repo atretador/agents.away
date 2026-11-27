@@ -389,5 +389,7 @@ export default {
   "App settings": "Configurações do app",
   "This PC": "Este PC",
   "Shown in the Agents Away Android app, where you can switch between PCs.": "Aparece no app Agents Away para Android, onde você pode trocar entre PCs.",
-  "pi starts with its own default model; change it in pi with /model.": "pi inicia com o modelo padrão dele; troque no pi com /model.",
+  "Loading pi models…": "Carregando modelos do pi…",
+  "use pi's default": "usar o padrão do pi",
+  "pi's default": "padrão do pi",
 };
