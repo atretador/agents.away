@@ -45,7 +45,7 @@ for c in bun tmux openssl systemctl; do have "$c" || missing+=("$c"); done
 if ((${#missing[@]})); then
   echo "Missing: ${missing[*]}. Install them first (bun: https://bun.sh)." >&2; exit 1
 fi
-have claude   || warn "claude (Claude Code) isn't on PATH — Agents Away will have nothing to show until it is."
+have claude || have pi || have opencode || warn "None of claude (Claude Code), pi or opencode is on PATH — Agents Away will have nothing to show until one is."
 have rg       || warn "ripgrep (rg) not found — transcript search in the app won't work."
 have qrencode || warn "qrencode not found — 'agents-away pair' will print links instead of QR codes."
 have opencode || echo "    (OpenCode not found — optional; OpenCode sessions appear automatically if you install it.)"

@@ -3,9 +3,10 @@
 [![CI](https://github.com/atretador/agents.away/actions/workflows/ci.yml/badge.svg)](https://github.com/atretador/agents.away/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**A phone companion for the Claude Code (and OpenCode, and pi) sessions running on your own PC.**
+**A phone companion for the coding agents running on your own PC: [Claude Code](https://docs.claude.com/en/docs/claude-code), [OpenCode](https://opencode.ai) and [pi](https://pi.dev).**
 Follow a session's chat live, answer it, approve permission prompts, get push notifications when
-it needs you or finishes, and let Claude send you screenshots to approve, all from your phone.
+it needs you or finishes, and let your agent send you screenshots to approve, all from your phone.
+Use whichever agents you like, one or all of them: none is required, and they show up side by side.
 
 Agents Away is self-hosted. It runs on your PC and your phone reaches it over your home network or your
 own VPN (WireGuard, Tailscale…). Nothing goes through a third-party server. The one exception is
@@ -65,8 +66,8 @@ its notifications straight from them, with no push service in between.
   Approve / Request changes / Reject, plus a comment. The answer goes back to Claude.
 - **Start, resume and end sessions** from the phone, choosing model, effort and permission mode.
 - **Search** across all past Claude Code transcripts.
-- **OpenCode** sessions too (optional), through OpenCode's own server API.
-- **pi** sessions too (optional): read, reply, interrupt and start them, like Claude Code ones (see [pi](#pi-optional)).
+- **Claude Code, OpenCode and pi** sessions in one list, each with its chat, replies, interrupt, and starting and
+  resuming sessions. What each one supports differs a little: see [OpenCode](#opencode) and [pi](#pi).
 - **Themes:** Warm Light and Warm Dark, neutral Light and Dark, and Black (near-black, OpenCode-style);
   Auto follows the phone. Accent colours and text size too.
 - **Languages:** English, Spanish and Brazilian Portuguese. It follows the phone's language, or pick one
@@ -76,8 +77,8 @@ its notifications straight from them, with no push service in between.
 
 - Linux with a systemd user session (Arch, Debian/Ubuntu, Fedora… tested on Arch).
 - [Bun](https://bun.sh) ≥ 1.1, `tmux` ≥ 3.2, `openssl`.
-- [Claude Code](https://docs.claude.com/en/docs/claude-code) (`claude` on your PATH).
-- Optional: `ripgrep` (search), `qrencode` (QR codes when pairing), OpenCode, [pi](https://pi.dev).
+- At least one coding agent: [Claude Code](https://docs.claude.com/en/docs/claude-code) (`claude` on your PATH), [OpenCode](https://opencode.ai) or [pi](https://pi.dev) (`pi` on your PATH). Any combination works.
+- Optional: `ripgrep` (search), `qrencode` (QR codes when pairing).
 - A phone on the same network as the PC, or connected to it over a VPN. Android/Chrome works best;
   iOS needs the app added to the Home Screen before it can receive notifications (iOS 16.4+).
 
@@ -90,8 +91,8 @@ feature without warning, so here is exactly what it has been tested with:
 | | Tested | Notes |
 |---|---|---|
 | Claude Code | 2.1.329 | Newer versions usually work; if something breaks after an update, open an issue with the version |
-| OpenCode | 2.3.2 | Optional; uses OpenCode's own server API |
-| pi | 0.80.2 | Optional; reads pi's session files and uses a small pi extension for status |
+| OpenCode | 2.3.2 | Uses OpenCode's own server API |
+| pi | 0.80.2 | Reads pi's session files and uses a small pi extension for status |
 | OS | Arch Linux (kernel 7.3) | Any Linux with a systemd user session should work; macOS/Windows aren't supported |
 | Bun / tmux | 1.4.4 / 3.8 | Bun ≥ 1.1 and tmux ≥ 3.2 required |
 | Shell | fish 4.9 | The bash/zsh wrapper is included but has had less real-world use |
@@ -124,9 +125,9 @@ folder first). It:
 2. creates a private certificate authority and an HTTPS certificate for this PC's addresses
    (`~/.config/agents-away/certs`);
 3. links the `agents-away` command into `~/.local/bin`, plus the short alias `aa` if that name is free;
-4. adds Agents Away's hooks to `~/.claude/settings.json`, keeping a backup and leaving your other hooks alone;
+4. adds Agents Away's hooks to `~/.claude/settings.json` (for Claude Code), keeping a backup and leaving your other hooks alone, and installs the pi extension if pi is installed;
 5. installs the `agents-away-review` skill (`agents-away skill install`), so Claude Code and OpenCode know how to send you images;
-6. installs a small `claude` wrapper for your shell (fish, bash or zsh) that starts interactive
+6. installs a small `claude` wrapper (and a `pi` one, if pi is installed) for your shell (fish, bash or zsh) that starts interactive
    sessions inside a dedicated tmux server, so Agents Away can type into them (more on this below);
 7. installs and starts the `agents-away` systemd user service.
 
@@ -252,20 +253,20 @@ agents-away review --withdraw <id>    # take back a review that's no longer rele
 agents-away notify "Title" "Body"     # a plain push
 ```
 
-### pi (optional)
+### pi
 
-If [pi](https://pi.dev) is installed, `agents-away hooks install` also installs a small extension into
+[pi](https://pi.dev) sessions work like Claude Code ones. If pi is installed, `agents-away hooks install` also installs a small extension into
 `~/.pi/agent/extensions/` (`agents-away hooks uninstall` removes it) and the installer adds a `pi`
 wrapper that starts pi in the same `agents-away` tmux socket as Claude Code. A running pi appears in
 the app like a Claude Code session: you can follow the chat (messages, tool calls, results, collapsed
 thinking), reply, interrupt (Esc, from the keys row), see the context-window %, get a notification when it
-finishes a turn, start new pi sessions (with a model and thinking level of your choice; it offers the models from `pi --list-models`) and resume old ones. Already-running pis load the extension with
-`/reload`.
+finishes a turn, start new pi sessions (choosing the model from `pi --list-models` and a thinking level) and resume old
+ones. A pi that was already running loads the extension with `/reload`.
 
 pi has no permission prompts, so there are no approval cards, and v1 has no subagents or terminal tab.
-Sessions started outside the wrapper (not in tmux) are watch-only, as with Claude Code. New pi sessions
+Sessions started outside the wrapper (not in tmux) are watch-only, as with Claude Code.
 
-### OpenCode (optional)
+### OpenCode
 
 If [OpenCode](https://opencode.ai) is installed, its sessions appear in the app whenever its
 background server is running (`opencode service start`, or just use OpenCode). You can read, reply,
@@ -294,7 +295,7 @@ it there. Not yet supported: search.
 | `agents-away updates on\|off\|check\|status` | Optional daily check for a new release (off by default) |
 | `agents-away attach` / `agents-away a` | Attach this terminal to a Agents Away tmux session |
 | `agents-away review …` / `agents-away notify …` | See above |
-| `agents-away hooks install\|uninstall\|status` | Manage the Claude Code hooks |
+| `agents-away hooks install\|uninstall\|status` | Manage the Claude Code hooks and the pi extension |
 | `agents-away skill install\|uninstall\|status [--claude\|--opencode]` | The `agents-away-review` skill for Claude Code and OpenCode |
 | `systemctl --user restart agents-away` | Restart the server (the app reloads itself) |
 | `journalctl --user -u agents-away -f` | Server logs |
@@ -359,6 +360,8 @@ at the top). Within that assumption:
 Found a vulnerability? Please report it privately, not in a public issue: see [SECURITY.md](SECURITY.md).
 
 ## How it works
+
+This describes Claude Code; pi works the same way (see [pi](#pi)), and OpenCode is read through its server API.
 
 Claude Code writes a small status file per running session (`~/.claude/sessions/<pid>.json`) and a
 transcript (`~/.claude/projects/…/<session>.jsonl`). Agents Away reads both, matches each session to its
