@@ -180,3 +180,22 @@ export function recentPiSessions(limit = 30): Recent[] {
   }
   return out;
 }
+
+// ───────── the first message, until pi has written it ─────────
+// pi creates its session file only once the first message is processed, so for a moment the phone would show
+// an empty chat (and a nameless card) for a message it just sent. The server remembers that first message and
+// shows it as a pending item until the transcript has messages of its own.
+const pendingFirst = new Map<string, string>(); // session id, or "tmux:<name>" for a session started from the phone
+
+export const rememberFirst = (key: string, text: string) => { if (text.trim() && !pendingFirst.has(key)) pendingFirst.set(key, text); };
+
+const hasMessages = (path: string | null) => { try { return !!path && head(path, 64 * 1024).includes('"type":"message"'); } catch { return false; } };
+
+/** The first message of a pi session whose transcript doesn't have it yet, else null (and forgotten). */
+export function pendingFirstMessage(id: string, path: string | null, tmuxName?: string | null): string | null {
+  const keys = [id, ...(tmuxName ? ["tmux:" + tmuxName] : [])];
+  const text = keys.map((k) => pendingFirst.get(k)).find((t) => t !== undefined) ?? null;
+  if (text === null) return null;
+  if (hasMessages(path)) { for (const k of keys) pendingFirst.delete(k); return null; }
+  return text;
+}

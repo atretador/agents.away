@@ -15,7 +15,7 @@ import {
 } from "./claude";
 import { detectAskForm, answerAsk, sameQuestion, type AskAnswer } from "./tmux";
 import { askQuestions, pendingAsk, isSessionId, type AskQuestion } from "./claude";
-import { listPiProcs, piTitle, recentPiSessions, PI_SESSIONS_DIR } from "./pi";
+import { listPiProcs, piTitle, recentPiSessions, PI_SESSIONS_DIR, rememberFirst, pendingFirstMessage } from "./pi";
 import { onToolHook, toolForScreen, toolLine } from "./approval";
 import { setPushTap, type PushPayload } from "./push";
 import { addSubscription, removeSubscription, pushAll, subscriptionCount, type PushPayload } from "./push";
@@ -161,7 +161,7 @@ async function refresh() {
     else status = "idle";
     sessions.set(p.sessionId, {
       ...(pi ? { kind: "pi", modelName: pi.model } : {}),
-      id: p.sessionId, pid: p.pid, name: p.name, title: pi ? piTitle(tpath, p.name === basename(p.cwd) ? null : p.name) : sessionTitle(tpath), cwd: p.cwd, status,
+      id: p.sessionId, pid: p.pid, name: p.name, title: pi ? (piTitle(tpath, p.name === basename(p.cwd) ? null : p.name) ?? pendingFirstMessage(p.sessionId, tpath, pane?.session)?.replace(/\s+/g, " ").trim().slice(0, 80) ?? null) : sessionTitle(tpath), cwd: p.cwd, status,
       tmux: pane ? { socket: pane.socket, pane: pane.paneId, session: pane.session, attached: pane.attached, cols: pane.width } : null,
       attention: h.attention, prompt, lastInputAt: ttyLastInput(p.tty),
       activityAt: tpath ? statSync(tpath).mtimeMs : 0, startedAt: p.startedAt, doneAt: h.doneAt,
@@ -456,7 +456,7 @@ async function deliverReview(r: R.Review) {
 // ───────────────────────── websocket ─────────────────────────
 
 type OcWatch = { sigs: string[]; dirty: boolean; lastPoll: number; queue: string; busy: boolean; termAt?: number; termBusy?: boolean };
-type WsData = { deviceKey?: string; watch: { id: string; chat: boolean; term: boolean; offset: number; lastTerm: string; oc?: OcWatch } | null; visible: boolean; listen?: boolean };
+type WsData = { deviceKey?: string; watch: { id: string; chat: boolean; term: boolean; offset: number; lastTerm: string; pendingShown?: boolean; oc?: OcWatch } | null; visible: boolean; listen?: boolean };
 
 const isOc = (id: string) => sessions.get(id)?.kind === "opencode" || id.startsWith("ses_");
 
@@ -529,7 +529,11 @@ function startWatch(ws: ServerWebSocket<WsData>, id: string, chat: boolean, term
     return;
   }
   const path = transcriptPath(id, s?.cwd);
-  if (chat && path) {
+  const pend = s?.kind === "pi" ? pendingFirstMessage(id, path, s.tmux?.session) : null;
+  if (chat && pend !== null) { // pi hasn't written the first message yet: show it, then reset once it has
+    ws.data.watch.pendingShown = true;
+    ws.send(JSON.stringify({ type: "chat", id, reset: true, items: [{ k: "user", text: pend, pending: true }], start: 0, end: 0 }));
+  } else if (chat && path) {
     const end = lastNewlineBefore(path, fileSize(path));
     if (from > 0 && from <= end) {
       // The phone already has everything up to `from` cached: send only what's new.
@@ -571,7 +575,12 @@ async function tickWatchers() {
     const s = sessionFor(w.id);
     if (w.chat) {
       const path = transcriptPath(w.id, s?.cwd);
-      if (path) {
+      // A message sent while this chat is open (pi writes no file until it has processed it): show it now.
+      if (!w.pendingShown && s?.kind === "pi" && pendingFirstMessage(w.id, path, s.tmux?.session) !== null) { startWatch(ws, w.id, w.chat, w.term); continue; }
+      if (w.pendingShown) {
+        // The placeholder goes when the transcript has the message: start over from the real chat.
+        if (s?.kind !== "pi" || pendingFirstMessage(w.id, path, s.tmux?.session) === null) startWatch(ws, w.id, w.chat, w.term);
+      } else if (path) {
         const size = fileSize(path);
         if (size < w.offset) { startWatch(ws, w.id, w.chat, w.term); continue; }
         if (size > w.offset) {
@@ -740,6 +749,7 @@ async function api(req: Request, url: URL, deviceKey: string): Promise<Response>
         R.resolveWaiters({ ...r, chatMessage: text });
       }
       await sendText(s.tmux.socket, s.tmux.pane, text, b.submit !== false);
+      if (s.kind === "pi" && b.submit !== false) rememberFirst(s.id, text); // kept only until pi's transcript has messages
     } else if (mm[2] === "keys") {
       await sendKeys(s.tmux.socket, s.tmux.pane, Array.isArray(b.keys) ? b.keys.map(String) : []);
     } else {
@@ -967,6 +977,7 @@ async function api(req: Request, url: URL, deviceKey: string): Promise<Response>
       if (b.prompt) args.push(String(b.prompt).replace(/^(?=[-@])/, " "));
       const name = await uniqueName("pi-" + basename(cwd));
       await newSession(cwd, name, args, "pi");
+      if (b.prompt && !b.resume) rememberFirst("tmux:" + name, String(b.prompt));
       return json({ ok: true, tmux: name });
     }
     const args: string[] = [];

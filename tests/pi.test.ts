@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseLines, transcriptPath, readTail } from "../src/claude";
-import { listPiProcs, piTitle, piTranscript, recentPiSessions, PI_REG_DIR, PI_SESSIONS_DIR } from "../src/pi";
+import { listPiProcs, piTitle, piTranscript, recentPiSessions, rememberFirst, pendingFirstMessage, PI_REG_DIR, PI_SESSIONS_DIR } from "../src/pi";
 
 // pi's transcript format (~/.pi/agent/sessions/--<cwd>--/<timestamp>_<id>.jsonl)
 const msg = (message: object, id = Math.random().toString(16).slice(2, 10)) => JSON.stringify({ type: "message", id, parentId: null, timestamp: "2026-01-01T00:00:00.000Z", message });
@@ -85,4 +85,21 @@ test("pi: a custom session dir keeps the files flat", () => {
   writeFileSync(file, session(id, "/work/flat") + "\n" + msg({ role: "user", content: "x".repeat(1600) }) + "\n");
   expect(piTranscript(id)).toBe(file);
   expect(recentPiSessions().some((r) => r.sessionId === id)).toBe(true);
+});
+
+test("pi: the first message is shown until the transcript has it", () => {
+  const id = "019f4444-2222-7333-8444-777777777777";
+  const file = join(PI_SESSIONS_DIR, `2026-01-03T00-00-00-000Z_${id}.jsonl`);
+  rememberFirst("tmux:pi-app", "build a thing");
+  rememberFirst("tmux:pi-app", "ignored: only the first message is kept");
+  // no file yet, then a file with only a header and bookkeeping: still pending (found through the tmux name)
+  expect(pendingFirstMessage(id, null, "pi-app")).toBe("build a thing");
+  mkdirSync(PI_SESSIONS_DIR, { recursive: true });
+  writeFileSync(file, session(id, "/work/app") + "\n");
+  expect(pendingFirstMessage(id, file, "pi-app")).toBe("build a thing");
+  expect(pendingFirstMessage("other", null, "other-tmux")).toBeNull();
+  // once the transcript has a message it wins, and the placeholder is forgotten for good
+  writeFileSync(file, session(id, "/work/app") + "\n" + msg({ role: "user", content: "build a thing" }) + "\n");
+  expect(pendingFirstMessage(id, file, "pi-app")).toBeNull();
+  expect(pendingFirstMessage(id, null, "pi-app")).toBeNull();
 });
