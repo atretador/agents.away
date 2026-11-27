@@ -3,14 +3,7 @@
 All notable changes to Agents Away. Versions follow [Semantic Versioning](https://semver.org/); while the
 version is 0.x, minor releases may change behaviour or configuration.
 
-## Unreleased
-
-### Web app
-- Every session card and session header now names its agent (Claude, OpenCode or pi) with a badge; before, only
-  OpenCode and pi sessions had one. When sessions of more than one agent are running, a filter next to the
-  session count (All · Claude · OpenCode · pi) narrows the list; it's remembered per phone.
-- Images (in chats and in reviews) can be zoomed: pinch, double-tap or mouse wheel, and drag to pan. This now
-  works inside the Android app too, where the browser's own pinch-zoom doesn't reach the viewer.
+## 0.3.0 — 2026-11-27
 
 ### pi
 - [pi](https://pi.dev) sessions appear next to Claude Code and OpenCode ones: follow the chat (messages, tool
@@ -19,6 +12,15 @@ version is 0.x, minor releases may change behaviour or configuration.
   (`~/.pi/agent/extensions/agents-away.ts`) and the installer adds a `pi` wrapper that runs it in the
   `agents-away` tmux socket. pi has no permission prompts, so there are no approval cards; subagents and a
   terminal tab aren't supported yet.
+- The installer no longer warns about a missing `claude` when `pi` or `opencode` is installed instead; the README now
+  presents Claude Code, OpenCode and pi as equal, optional choices.
+
+### Web app
+- Every session card and session header now names its agent (Claude, OpenCode or pi) with a badge; before, only
+  OpenCode and pi sessions had one. When sessions of more than one agent are running, a filter next to the
+  session count (All · Claude · OpenCode · pi) narrows the list; it's remembered per phone.
+- Images (in chats and in reviews) can be zoomed: pinch, double-tap or mouse wheel, and drag to pan. This now
+  works inside the Android app too, where the browser's own pinch-zoom doesn't reach the viewer.
 
 ## 0.2.1 — 2026-11-27
 
