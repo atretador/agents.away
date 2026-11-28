@@ -255,7 +255,7 @@ button.card { width: 100%; text-align: left; }
 .tool pre.err { color: var(--bad); }
 .tools-group { display: flex; flex-direction: column; gap: 4px; }
 
-.term-wrap { flex: 1; background: var(--term-bg); overflow: auto; padding: 10px 8px calc(var(--safe-b) + 8px); }
+.term-wrap { touch-action: pan-x pan-y; flex: 1; background: var(--term-bg); overflow: auto; padding: 10px 8px calc(var(--safe-b) + 8px); }
 .term { margin: 0; font: var(--term-size, 12px)/1.32 var(--mono); color: var(--term-ink); white-space: pre; }
 .term.wrap { white-space: pre-wrap; word-break: break-all; }
 

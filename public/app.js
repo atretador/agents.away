@@ -634,6 +634,7 @@ function setMode(mode, initial = false) {
     $("#t-minus").onclick = () => bumpTerm(-1);
     $("#t-plus").onclick = () => bumpTerm(1);
     applyTermSize();
+    pinchTerm($("#termwrap"));
   }
   if (!initial || S.connected) watch(S.view.id);
   if (!initial && cur()?.kind === "opencode") renderDock(cur());
@@ -1223,6 +1224,24 @@ function bumpTerm(d) {
   savePrefs(); applyTermSize(); toast(tr("Text size {size}px", { size: prefs.termSize }));
 }
 addEventListener("resize", () => applyTermSize());
+// Two-finger pinch on the terminal changes its text size (one finger still scrolls).
+function pinchTerm(wrap) {
+  let d0 = 0, size0 = 0;
+  const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  wrap.addEventListener("touchstart", (e) => {
+    if (e.touches.length === 2) { d0 = dist(e.touches); size0 = parseFloat(getComputedStyle($("#term")).getPropertyValue("--term-size")) || prefs.termSize; }
+  }, { passive: true });
+  wrap.addEventListener("touchmove", (e) => {
+    if (e.touches.length !== 2 || !d0) return;
+    e.preventDefault();
+    prefs.termFit = false; $("#t-fit")?.classList.remove("on");
+    prefs.termSize = Math.round(Math.max(5, Math.min(30, size0 * dist(e.touches) / d0)) * 10) / 10;
+    applyTermSize();
+  }, { passive: false });
+  const end = (e) => { if (e.touches.length < 2 && d0) { d0 = 0; savePrefs(); } };
+  wrap.addEventListener("touchend", end, { passive: true });
+  wrap.addEventListener("touchcancel", end, { passive: true });
+}
 function toggleWrap() {
   S.termWrap = !S.termWrap; localStorage.setItem("away.termWrap", S.termWrap ? "1" : "0");
   $("#term").classList.toggle("wrap", S.termWrap);
